@@ -15,6 +15,8 @@ add_executable(warp-gui
     src/main.cpp
     src/popup_widget.cpp
     src/popup_widget.h
+    src/toggle_switch.cpp
+    src/toggle_switch.h
     src/tray_app.cpp
     src/tray_app.h
     src/warp_cli.cpp

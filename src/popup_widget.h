@@ -4,7 +4,8 @@
 #include <QString>
 
 class QLabel;
-class QCheckBox;
+class QPushButton;
+class ToggleSwitch;
 
 class WarpPopup : public QWidget {
     Q_OBJECT
@@ -19,6 +20,7 @@ signals:
     void requestConnect();
     void requestDisconnect();
     void requestClose();
+    void requestSettings();
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
@@ -31,9 +33,10 @@ private:
     void applyStyle();
 
     QLabel *m_title;
-    QCheckBox *m_toggle;
+    ToggleSwitch *m_toggle;
     QLabel *m_status;
     QLabel *m_subtitle;
+    QPushButton *m_settingsBtn;
 
     bool m_busy;
 };

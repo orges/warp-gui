@@ -1,17 +1,20 @@
 #include "popup_widget.h"
+#include "toggle_switch.h"
 
-#include <QCheckBox>
 #include <QFont>
+#include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QPushButton>
 #include <QVBoxLayout>
 
 WarpPopup::WarpPopup(QWidget *parent)
     : QWidget(parent),
       m_title(new QLabel(QStringLiteral("WARP"), this)),
-      m_toggle(new QCheckBox(this)),
+      m_toggle(new ToggleSwitch(this)),
       m_status(new QLabel(QStringLiteral("…"), this)),
       m_subtitle(new QLabel(QStringLiteral(""), this)),
+      m_settingsBtn(new QPushButton(this)),
       m_busy(false) {
     // Don't use WA_TranslucentBackground - it interferes with the styled background
     // The frameless window with styled background will work fine
@@ -24,14 +27,23 @@ WarpPopup::WarpPopup(QWidget *parent)
     layout->setContentsMargins(18, 18, 18, 18);
     layout->setSpacing(12);
 
+    // Title and settings button in horizontal layout
+    auto *topLayout = new QHBoxLayout();
+    topLayout->addStretch();
+
     QFont titleFont = m_title->font();
     titleFont.setPointSize(28);
     titleFont.setBold(true);
     m_title->setFont(titleFont);
-    m_title->setAlignment(Qt::AlignHCenter);
+    m_title->setAlignment(Qt::AlignCenter);
+    topLayout->addWidget(m_title);
 
-    m_toggle->setTristate(false);
-    m_toggle->setText(QString());
+    topLayout->addStretch();
+
+    // Settings button with wrench icon
+    m_settingsBtn->setText(QStringLiteral("⚙"));
+    m_settingsBtn->setFixedSize(32, 32);
+    topLayout->addWidget(m_settingsBtn);
 
     QFont statusFont = m_status->font();
     statusFont.setPointSize(16);
@@ -45,16 +57,18 @@ WarpPopup::WarpPopup(QWidget *parent)
     m_subtitle->setAlignment(Qt::AlignHCenter);
     m_subtitle->setWordWrap(true);
 
-    layout->addWidget(m_title);
+    layout->addLayout(topLayout);
     layout->addSpacing(6);
     layout->addWidget(m_toggle, 0, Qt::AlignHCenter);
     layout->addSpacing(6);
     layout->addWidget(m_status);
     layout->addWidget(m_subtitle);
+    layout->addStretch();
 
     applyStyle();
 
-    connect(m_toggle, &QCheckBox::toggled, this, &WarpPopup::onToggleChanged);
+    connect(m_toggle, &ToggleSwitch::toggled, this, &WarpPopup::onToggleChanged);
+    connect(m_settingsBtn, &QPushButton::clicked, this, &WarpPopup::requestSettings);
 
     setFixedSize(260, 320);
 }
@@ -62,24 +76,22 @@ WarpPopup::WarpPopup(QWidget *parent)
 void WarpPopup::applyStyle() {
     setStyleSheet(QStringLiteral(
         "WarpPopup { "
-        "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1a1a1c, stop:1 #0f0f10); "
-        "  border: 2px solid rgba(255,255,255,0.15); "
-        "  border-radius: 16px; "
+        "  background-color: #1e1e1e; "
+        "  border: 1px solid #3a3a3a; "
+        "  border-radius: 12px; "
         "}"
         "QLabel { color: #ffffff; background: transparent; }"
-        "QCheckBox { background: transparent; }"
-        "QCheckBox::indicator { width: 86px; height: 44px; }"
-        "QCheckBox::indicator:unchecked {"
-        "  border-radius: 22px; background: #2c2c2f; border: 1px solid rgba(255,255,255,0.12);"
-        "  image: none;"
+        "QPushButton {"
+        "  background: transparent; "
+        "  border: none; "
+        "  color: #999999; "
+        "  font-size: 20px; "
+        "  padding: 0px;"
         "}"
-        "QCheckBox::indicator:checked {"
-        "  border-radius: 22px; background: #ff6a00; border: 1px solid rgba(255,255,255,0.08);"
-        "  image: none;"
-        "}"
+        "QPushButton:hover { color: #ffffff; }"
     ));
 
-    m_title->setStyleSheet(QStringLiteral("color: #ff3b30; background: transparent;"));
+    m_title->setStyleSheet(QStringLiteral("color: #ff6a00; background: transparent; font-weight: bold;"));
 }
 
 void WarpPopup::setStatusText(const QString &status, const QString &reason) {
