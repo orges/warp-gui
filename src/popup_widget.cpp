@@ -110,11 +110,8 @@ void WarpPopup::setStatusText(const QString &status, const QString &reason) {
         m_toggle->setChecked(true);
         m_toggle->blockSignals(false);
     } else {
-        if (!reason.trimmed().isEmpty()) {
-            m_subtitle->setText(reason.trimmed());
-        } else {
-            m_subtitle->setText(QStringLiteral("Your Internet is <span style='color:#ff6a00;font-weight:600'>not private</span>."));
-        }
+        // Always show "not private" message when disconnected, ignore reason
+        m_subtitle->setText(QStringLiteral("Your Internet is <span style='color:#ff6a00;font-weight:600'>not private</span>."));
         m_toggle->blockSignals(true);
         m_toggle->setChecked(false);
         m_toggle->blockSignals(false);

@@ -228,13 +228,19 @@ void TrayApp::onWarpFinished(const QString &requestId, const WarpResult &result)
         return;
     }
 
-    if (result.exitCode != 0) {
+    // Only show error dialogs for registration/license commands
+    // Connect/disconnect should be silent and show status in popup
+    if (result.exitCode != 0 &&
+        (requestId == QStringLiteral("registration_new") ||
+         requestId == QStringLiteral("license"))) {
         const QString msg = !result.stderrText.trimmed().isEmpty()
                                 ? result.stderrText.trimmed()
                                 : (!result.stdoutText.trimmed().isEmpty() ? result.stdoutText.trimmed()
                                                                           : QStringLiteral("warp-cli failed"));
         QMessageBox::critical(nullptr, QStringLiteral("WARP"), msg);
-    } else {
+    } else if (result.exitCode == 0 &&
+               (requestId == QStringLiteral("registration_new") ||
+                requestId == QStringLiteral("license"))) {
         const QString msg = !result.stdoutText.trimmed().isEmpty() ? result.stdoutText.trimmed()
                                                                    : QStringLiteral("Command completed");
         QMessageBox::information(nullptr, QStringLiteral("WARP"), msg);
