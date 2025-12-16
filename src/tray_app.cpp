@@ -76,6 +76,10 @@ TrayApp::TrayApp(QObject *parent)
     connect(m_popup, &WarpPopup::requestConnect, this, &TrayApp::connectWarp);
     connect(m_popup, &WarpPopup::requestDisconnect, this, &TrayApp::disconnectWarp);
     connect(m_popup, &WarpPopup::requestClose, this, &TrayApp::hidePopup);
+    connect(m_popup, &WarpPopup::requestSettings, this, [this]() {
+        // Show context menu when settings button is clicked
+        m_menu->popup(QCursor::pos());
+    });
 
     // Setup popup window
     m_popup->setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
