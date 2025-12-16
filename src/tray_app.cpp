@@ -79,7 +79,6 @@ TrayApp::TrayApp(QObject *parent)
 
     // Setup popup window
     m_popup->setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-    m_popup->setAttribute(Qt::WA_TranslucentBackground, true);
 
     m_popup->hide();
 
@@ -115,7 +114,7 @@ void TrayApp::showPopup() {
     }
 
     // On Wayland, tray geometry is not available and cursor position doesn't work
-    // Position in top-right corner where system trays typically are
+    // Position near system tray which is typically in a panel
     QScreen *screen = QGuiApplication::primaryScreen();
     if (!screen) {
         qDebug() << "No primary screen available!";
@@ -125,19 +124,27 @@ void TrayApp::showPopup() {
     QRect screenGeom = screen->geometry();
     QRect availGeom = screen->availableGeometry();
 
-    qDebug() << "Screen geometry:" << screenGeom;
-    qDebug() << "Available geometry:" << availGeom;
-
-    // Position in top-right corner with some padding from edges
+    // On Wayland, panel detection often doesn't work (especially with auto-hide panels)
+    // For now, hardcode to bottom-right which is most common for system tray
+    const bool panelAtBottom = true;
+    const int estimatedPanelHeight = 48;
     const int rightPadding = 16;
-    const int topPadding = 8;
+    const int popupSpacing = 8; // Space between panel and popup
 
-    QPoint popupPos(
-        availGeom.right() - m_popup->width() - rightPadding,
-        availGeom.top() + topPadding
-    );
-
-    qDebug() << "Calculated popup position:" << popupPos;
+    QPoint popupPos;
+    if (panelAtBottom) {
+        // Panel at bottom - position popup just above the panel
+        popupPos = QPoint(
+            screenGeom.right() - m_popup->width() - rightPadding,
+            screenGeom.bottom() - m_popup->height() - estimatedPanelHeight - popupSpacing
+        );
+    } else {
+        // Panel at top - position popup just below the panel
+        popupPos = QPoint(
+            screenGeom.right() - m_popup->width() - rightPadding,
+            screenGeom.top() + estimatedPanelHeight + popupSpacing
+        );
+    }
 
     // Create native window if not already created
     if (!m_popup->windowHandle()) {
@@ -145,7 +152,7 @@ void TrayApp::showPopup() {
     }
 
     // Use Wayland helper to set up positioning BEFORE showing
-    WaylandPopupHelper::setupPopupWindow(m_popup, popupPos);
+    WaylandPopupHelper::setupPopupWindow(m_popup, popupPos, panelAtBottom);
 
     m_popup->show();
     m_popup->raise();

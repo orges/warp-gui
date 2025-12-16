@@ -13,7 +13,8 @@ WarpPopup::WarpPopup(QWidget *parent)
       m_status(new QLabel(QStringLiteral("…"), this)),
       m_subtitle(new QLabel(QStringLiteral(""), this)),
       m_busy(false) {
-    setAttribute(Qt::WA_TranslucentBackground, true);
+    // Don't use WA_TranslucentBackground - it interferes with the styled background
+    // The frameless window with styled background will work fine
 
     // Make the window close when clicking outside or pressing Escape
     setAttribute(Qt::WA_DeleteOnClose, false);
