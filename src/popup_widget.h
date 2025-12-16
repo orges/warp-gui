@@ -1,0 +1,39 @@
+#pragma once
+
+#include <QWidget>
+#include <QString>
+
+class QLabel;
+class QCheckBox;
+
+class WarpPopup : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit WarpPopup(QWidget *parent = nullptr);
+
+    void setStatusText(const QString &status, const QString &reason);
+    void setBusy(bool busy);
+
+signals:
+    void requestConnect();
+    void requestDisconnect();
+    void requestClose();
+
+protected:
+    void keyPressEvent(QKeyEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
+
+private slots:
+    void onToggleChanged(bool checked);
+
+private:
+    void applyStyle();
+
+    QLabel *m_title;
+    QCheckBox *m_toggle;
+    QLabel *m_status;
+    QLabel *m_subtitle;
+
+    bool m_busy;
+};
