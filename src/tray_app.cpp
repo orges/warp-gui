@@ -19,6 +19,7 @@
 #include <QWidgetAction>
 
 #include "popup_widget.h"
+#include "settings_menu.h"
 #include "wayland_popup_helper.h"
 
 TrayApp::TrayApp(QObject *parent)
@@ -36,6 +37,7 @@ TrayApp::TrayApp(QObject *parent)
       m_quitAction(new QAction(QStringLiteral("Quit"), m_menu)),
       m_poll(new QTimer(this)),
       m_popup(new WarpPopup()),
+      m_settingsMenu(new SettingsMenu()),
       m_currentStatus(QStringLiteral("…")),
       m_busy(false) {
     connect(&m_warp, &WarpCli::finished, this, &TrayApp::onWarpFinished);
@@ -77,9 +79,21 @@ TrayApp::TrayApp(QObject *parent)
     connect(m_popup, &WarpPopup::requestDisconnect, this, &TrayApp::disconnectWarp);
     connect(m_popup, &WarpPopup::requestClose, this, &TrayApp::hidePopup);
     connect(m_popup, &WarpPopup::requestSettings, this, [this]() {
-        // Show context menu when settings button is clicked
-        m_menu->popup(QCursor::pos());
+        // Show custom settings menu
+        // Position it below the settings button or at bottom-left of popup
+        QPoint menuPos = m_popup->mapToGlobal(QPoint(8, m_popup->height() - 8));
+        m_settingsMenu->move(menuPos);
+        m_settingsMenu->show();
+        m_settingsMenu->raise();
+        m_settingsMenu->activateWindow();
     });
+
+    // Connect settings menu signals
+    connect(m_settingsMenu, &SettingsMenu::registerRequested, this, &TrayApp::registerClient);
+    connect(m_settingsMenu, &SettingsMenu::enrollRequested, this, &TrayApp::enrollOrg);
+    connect(m_settingsMenu, &SettingsMenu::licenseRequested, this, &TrayApp::attachLicense);
+    connect(m_settingsMenu, &SettingsMenu::refreshRequested, this, &TrayApp::refreshStatus);
+    connect(m_settingsMenu, &SettingsMenu::quitRequested, qApp, &QApplication::quit);
 
     // Setup popup window
     m_popup->setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
@@ -317,6 +331,10 @@ void TrayApp::applyUiState() {
     if (m_popup) {
         m_popup->setBusy(m_busy);
         m_popup->setStatusText(m_currentStatus, m_currentReason);
+    }
+
+    if (m_settingsMenu) {
+        m_settingsMenu->setActionsEnabled(!m_busy);
     }
 
     if (connected) {

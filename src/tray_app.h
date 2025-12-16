@@ -11,6 +11,7 @@ class QWidgetAction;
 class QWidget;
 
 class WarpPopup;
+class SettingsMenu;
 
 #include "warp_cli.h"
 
@@ -59,6 +60,7 @@ private:
     QTimer *m_poll;
 
     WarpPopup *m_popup;
+    SettingsMenu *m_settingsMenu;
 
     QString m_currentStatus;
     QString m_currentReason;
