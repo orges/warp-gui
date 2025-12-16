@@ -36,6 +36,8 @@ private:
     ToggleSwitch *m_toggle;
     QLabel *m_status;
     QLabel *m_subtitle;
+    QWidget *m_bottomBar;
+    QLabel *m_brandingLabel;
     QPushButton *m_settingsBtn;
 
     bool m_busy;
