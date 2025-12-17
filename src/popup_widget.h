@@ -34,6 +34,7 @@ private slots:
 private:
     void applyStyle();
     void updateTitle();
+    void updateTitleColor();
 
     QLabel *m_title;
     ToggleSwitch *m_toggle;

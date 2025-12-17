@@ -49,9 +49,7 @@ private:
     QLabel *m_connectionTypeLabel;
     QLabel *m_publicIpLabel;
     QLabel *m_deviceIdLabel;
-    QPushButton *m_registerBtn;
-    QPushButton *m_enrollOrgBtn;
-    QPushButton *m_attachLicenseBtn;
+
 
     // Connection page widgets
     QComboBox *m_modeCombo;

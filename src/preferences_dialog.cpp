@@ -16,6 +16,7 @@
 #include <QRegularExpression>
 #include <QStackedWidget>
 #include <QTextEdit>
+#include <QTimer>
 #include <QVBoxLayout>
 
 PreferencesDialog::PreferencesDialog(QWidget *parent)
@@ -24,7 +25,7 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
       m_contentStack(new QStackedWidget(this)) {
 
     setWindowTitle(QStringLiteral("WARP Preferences"));
-    setMinimumSize(750, 500);
+    setMinimumSize(850, 750);
 
     setupUi();
     applyStyles();
@@ -153,24 +154,31 @@ void PreferencesDialog::createAccountPage() {
     auto *actionsGroup = new QGroupBox(QStringLiteral("Registration"));
     auto *actionsLayout = new QVBoxLayout(actionsGroup);
 
-    m_registerBtn = new QPushButton(QStringLiteral("Register New Device"));
-    m_enrollOrgBtn = new QPushButton(QStringLiteral("Enroll in Zero Trust Organization"));
-
     auto *registerDesc = new QLabel(QStringLiteral("Register this device to start using WARP."));
     registerDesc->setWordWrap(true);
     registerDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px; margin-bottom: 5px;"));
+    actionsLayout->addWidget(registerDesc);
+
+    auto *registerBtn = new QPushButton(QStringLiteral("Register New Device"));
+    registerBtn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    connect(registerBtn, &QPushButton::clicked, this, [this]() {
+        QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("new")});
+        QMessageBox::information(this, QStringLiteral("Register"), QStringLiteral("Registration command executed. Check status below."));
+        refreshSettings();
+        emit settingsChanged();
+    });
+    actionsLayout->addWidget(registerBtn);
+
+    actionsLayout->addSpacing(10);
 
     auto *enrollDesc = new QLabel(QStringLiteral("Connect to your organization's Zero Trust network."));
     enrollDesc->setWordWrap(true);
     enrollDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px; margin-bottom: 5px;"));
+    actionsLayout->addWidget(enrollDesc);
 
-    connect(m_registerBtn, &QPushButton::clicked, this, [this, accountStatusLabel]() {
-        QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("new")});
-        QMessageBox::information(this, QStringLiteral("Register"), QStringLiteral("Registration command executed. Check status below."));
-        refreshSettings();
-    });
-
-    connect(m_enrollOrgBtn, &QPushButton::clicked, this, [this, accountStatusLabel]() {
+    auto *enrollOrgBtn = new QPushButton(QStringLiteral("Enroll in Zero Trust Organization"));
+    enrollOrgBtn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    connect(enrollOrgBtn, &QPushButton::clicked, this, [this]() {
         bool ok;
         QString org = QInputDialog::getText(this, QStringLiteral("Enroll Organization"),
                                            QStringLiteral("Enter your organization name:"), QLineEdit::Normal,
@@ -205,20 +213,26 @@ void PreferencesDialog::createAccountPage() {
             QProcess *enrollProcess = new QProcess(this);
             QString *allOutput = new QString();
             bool *urlOpened = new bool(false);
+            QMetaObject::Connection *readConnection = new QMetaObject::Connection();
 
             // Read output as it comes
-            connect(enrollProcess, &QProcess::readyReadStandardOutput, this, [enrollProcess, allOutput, urlOpened, this]() {
-                *allOutput += QString::fromUtf8(enrollProcess->readAllStandardOutput());
+            *readConnection = connect(enrollProcess, &QProcess::readyReadStandardOutput, this, [enrollProcess, allOutput, urlOpened, readConnection, this]() {
+                QString newOutput = QString::fromUtf8(enrollProcess->readAllStandardOutput());
+                *allOutput += newOutput;
 
-                // Check if URL appeared in the output
+                // Check if URL appeared in the NEW output (not the accumulated output)
                 QRegularExpression urlRegex(QStringLiteral("https://[^\\s]+"));
-                auto urlMatch = urlRegex.match(*allOutput);
+                auto urlMatch = urlRegex.match(newOutput);
 
                 if (urlMatch.hasMatch() && !*urlOpened) {
                     QString url = urlMatch.captured(0);
                     *urlOpened = true;
 
-                    // Open browser immediately without showing extra dialog
+                    // Disconnect this signal immediately to prevent duplicate triggers
+                    disconnect(*readConnection);
+
+                    // NOTE: For enrollment, warp-cli does NOT automatically open browser
+                    // when run through script/unbuffer, so we need to open it manually
                     QProcess::startDetached(QStringLiteral("xdg-open"), {url});
 
                     // Show non-blocking notification
@@ -238,18 +252,46 @@ void PreferencesDialog::createAccountPage() {
             });
 
             connect(enrollProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                    this, [this, enrollProcess, allOutput, urlOpened, org](int exitCode, QProcess::ExitStatus exitStatus) {
+                    this, [this, enrollProcess, allOutput, urlOpened, readConnection, org](int exitCode, QProcess::ExitStatus exitStatus) {
                 *allOutput += QString::fromUtf8(enrollProcess->readAllStandardOutput());
                 *allOutput += QString::fromUtf8(enrollProcess->readAllStandardError());
 
                 if (exitCode == 0 && *urlOpened) {
                     // URL was opened, authentication should be complete
-                    QMessageBox::information(this, QStringLiteral("Enrollment Successful"),
-                                           QStringLiteral("Successfully enrolled in Zero Trust organization."));
-                    refreshSettings();
+                    // Don't show "Enrollment Successful" popup yet - wait for polling to confirm
+                    
+                    // Poll for Zero Trust status to change (check multiple times)
+                    int *retryCount = new int(0);
+                    QTimer *pollTimer = new QTimer(this);
+                    connect(pollTimer, &QTimer::timeout, this, [this, pollTimer, retryCount]() {
+                        (*retryCount)++;
+                        
+                        // Check if Zero Trust status has updated
+                        QProcess checkProcess;
+                        checkProcess.start(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("show")});
+                        checkProcess.waitForFinished();
+                        QString regOutput = QString::fromUtf8(checkProcess.readAllStandardOutput());
+                        
+                        bool isZeroTrust = regOutput.contains(QStringLiteral("Account type: Team"), Qt::CaseInsensitive) ||
+                                          regOutput.contains(QStringLiteral("Organization:"), Qt::CaseInsensitive);
+                        
+                        // If Zero Trust detected or we've tried 10 times (10 seconds), stop and refresh
+                        if (isZeroTrust || *retryCount >= 10) {
+                            pollTimer->stop();
+                            pollTimer->deleteLater();
+                            delete retryCount;
+                            
+                            refreshSettings();
+                            emit settingsChanged();
+                        }
+                    });
+                    pollTimer->start(1000); // Check every second
                 } else if (exitCode == 0 && !*urlOpened) {
                     // Successful but no URL? Might be already registered
-                    refreshSettings();
+                    QTimer::singleShot(1000, this, [this]() {
+                        refreshSettings();
+                        emit settingsChanged();
+                    });
                 } else if (allOutput->contains(QStringLiteral("Old registration is still around"), Qt::CaseInsensitive)) {
                     // Ask if user wants to delete old registration and retry
                     auto reply = QMessageBox::question(this,
@@ -282,7 +324,13 @@ void PreferencesDialog::createAccountPage() {
                                 QMessageBox::warning(this, QStringLiteral("Enrollment Failed"),
                                                    QStringLiteral("Failed to enroll. Please try again or check warp-cli status."));
                             }
-                            refreshSettings();
+                            
+                            // Wait a moment for the registration to fully process, then refresh
+                            QTimer::singleShot(1000, this, [this]() {
+                                refreshSettings();
+                                emit settingsChanged();
+                            });
+                            
                             retryProcess->deleteLater();
                         });
 
@@ -318,6 +366,7 @@ void PreferencesDialog::createAccountPage() {
 
                 delete allOutput;
                 delete urlOpened;
+                delete readConnection;
                 enrollProcess->deleteLater();
             });
 
@@ -336,26 +385,25 @@ void PreferencesDialog::createAccountPage() {
             enrollProcess->start(QStringLiteral("sh"), {QStringLiteral("-c"), command});
         }
     });
-
-    actionsLayout->addWidget(registerDesc);
-    actionsLayout->addWidget(m_registerBtn);
-    actionsLayout->addSpacing(10);
-    actionsLayout->addWidget(enrollDesc);
-    actionsLayout->addWidget(m_enrollOrgBtn);
+    actionsLayout->addWidget(enrollOrgBtn);
 
     layout->addWidget(actionsGroup);
+    
+    // Store registration group for show/hide later
+    page->setProperty("registrationGroup", QVariant::fromValue(actionsGroup));
 
     // License group
     auto *licenseGroup = new QGroupBox(QStringLiteral("WARP+ License"));
     auto *licenseLayout = new QVBoxLayout(licenseGroup);
 
-    m_attachLicenseBtn = new QPushButton(QStringLiteral("Attach License Key"));
-
     auto *licenseDesc = new QLabel(QStringLiteral("Enter your WARP+ license key to unlock premium features."));
     licenseDesc->setWordWrap(true);
     licenseDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px; margin-bottom: 5px;"));
+    licenseLayout->addWidget(licenseDesc);
 
-    connect(m_attachLicenseBtn, &QPushButton::clicked, this, [this, accountStatusLabel]() {
+    auto *attachLicenseBtn = new QPushButton(QStringLiteral("Attach License Key"));
+    attachLicenseBtn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    connect(attachLicenseBtn, &QPushButton::clicked, this, [this]() {
         bool ok;
         QString key = QInputDialog::getText(this, QStringLiteral("Attach License"),
                                            QStringLiteral("Enter your WARP+ license key:"), QLineEdit::Password,
@@ -364,13 +412,162 @@ void PreferencesDialog::createAccountPage() {
             QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("license"), key});
             QMessageBox::information(this, QStringLiteral("License"), QStringLiteral("License command executed. Check status below."));
             refreshSettings();
+            emit settingsChanged();
         }
     });
-
-    licenseLayout->addWidget(licenseDesc);
-    licenseLayout->addWidget(m_attachLicenseBtn);
+    licenseLayout->addWidget(attachLicenseBtn);
 
     layout->addWidget(licenseGroup);
+
+    // Zero Trust / Teams account management group
+    auto *teamsGroup = new QGroupBox(QStringLiteral("Zero Trust Account"));
+    auto *teamsLayout = new QVBoxLayout(teamsGroup);
+
+    auto *reauthDesc = new QLabel(QStringLiteral("Refresh your authentication with the Zero Trust organization."));
+    reauthDesc->setWordWrap(true);
+    reauthDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px; margin-bottom: 5px;"));
+    teamsLayout->addWidget(reauthDesc);
+
+    auto *reauthBtn = new QPushButton(QStringLiteral("Re-Authenticate Session"));
+    reauthBtn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    connect(reauthBtn, &QPushButton::clicked, this, [this]() {
+        // First check if WARP is connected
+        QProcess checkProcess;
+        checkProcess.start(QStringLiteral("warp-cli"), {QStringLiteral("status")});
+        checkProcess.waitForFinished();
+        QString statusOutput = QString::fromUtf8(checkProcess.readAllStandardOutput());
+        
+        bool isConnected = statusOutput.contains(QStringLiteral("Status update: Connected"), Qt::CaseInsensitive) ||
+                          statusOutput.contains(QStringLiteral("\"status\": \"Connected\""), Qt::CaseInsensitive);
+        
+        if (!isConnected) {
+            // Need to connect first
+            auto reply = QMessageBox::question(this,
+                QStringLiteral("WARP Not Connected"),
+                QStringLiteral("Re-authentication requires WARP to be connected.\n\nConnect now and then re-authenticate?"),
+                QMessageBox::Yes | QMessageBox::No);
+            
+            if (reply != QMessageBox::Yes) {
+                return;
+            }
+            
+            // Connect WARP
+            QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("connect")});
+            
+            // Wait a moment for connection
+            QMessageBox::information(this, QStringLiteral("Connecting"),
+                QStringLiteral("Connecting to WARP...\n\nClick OK to continue with re-authentication."));
+        }
+        
+        // Re-authenticate with Cloudflare Access
+        QProcess *reauthProcess = new QProcess(this);
+        QString *allOutput = new QString();
+        bool *urlOpened = new bool(false);
+        QMetaObject::Connection *readConnection = new QMetaObject::Connection();
+
+        // Read output as it comes
+        *readConnection = connect(reauthProcess, &QProcess::readyReadStandardOutput, this, [reauthProcess, allOutput, urlOpened, readConnection, this]() {
+            QString newOutput = QString::fromUtf8(reauthProcess->readAllStandardOutput());
+            *allOutput += newOutput;
+
+            // Check if URL appeared in the NEW output (not the accumulated output)
+            QRegularExpression urlRegex(QStringLiteral("https://[^\\s]+"));
+            auto urlMatch = urlRegex.match(newOutput);
+
+            if (urlMatch.hasMatch() && !*urlOpened) {
+                QString url = urlMatch.captured(0);
+                *urlOpened = true;
+
+                // Disconnect this signal immediately to prevent duplicate triggers
+                disconnect(*readConnection);
+
+                // NOTE: Don't open browser - warp-cli already opens it automatically
+                // Just show notification that browser was opened
+
+                // Show non-blocking notification
+                QMessageBox *msgBox = new QMessageBox(this);
+                msgBox->setWindowTitle(QStringLiteral("Browser Opened"));
+                msgBox->setIcon(QMessageBox::Information);
+                msgBox->setText(QStringLiteral("Complete authentication in browser"));
+                msgBox->setInformativeText(
+                    QStringLiteral("Browser opened to:\n") + url + QStringLiteral("\n\n"
+                                  "Complete the authentication to refresh your session.")
+                );
+                msgBox->setStandardButtons(QMessageBox::Ok);
+                msgBox->setAttribute(Qt::WA_DeleteOnClose);
+                msgBox->setModal(false);
+                msgBox->show();
+            }
+        });
+
+        connect(reauthProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                this, [this, reauthProcess, allOutput, urlOpened, readConnection](int exitCode, QProcess::ExitStatus exitStatus) {
+            *allOutput += QString::fromUtf8(reauthProcess->readAllStandardOutput());
+            *allOutput += QString::fromUtf8(reauthProcess->readAllStandardError());
+
+            if (exitCode == 0) {
+                if (*urlOpened) {
+                    // URL was opened - user already got the "Browser Opened" notification
+                    // Don't show another popup, just refresh silently
+                } else {
+                    // Command succeeded but no URL (might already be authenticated)
+                    QMessageBox::information(this, QStringLiteral("Re-Authentication Complete"),
+                                           QStringLiteral("Re-authentication completed successfully."));
+                }
+                refreshSettings();
+                emit settingsChanged();
+            } else {
+                // Show the actual error message from warp-cli
+                QString errorMsg = *allOutput;
+                if (errorMsg.isEmpty()) {
+                    errorMsg = QStringLiteral("Failed to re-authenticate. Please try logging out and enrolling again.");
+                }
+                QMessageBox::warning(this, QStringLiteral("Re-Authentication Failed"), errorMsg.trimmed());
+            }
+
+            delete allOutput;
+            delete urlOpened;
+            delete readConnection;
+            reauthProcess->deleteLater();
+        });
+
+        reauthProcess->start(QStringLiteral("warp-cli"), {QStringLiteral("debug"), QStringLiteral("access-reauth")});
+    });
+    teamsLayout->addWidget(reauthBtn);
+
+    teamsLayout->addSpacing(10);
+
+    auto *logoutDesc = new QLabel(QStringLiteral("Remove this device from your Zero Trust organization."));
+    logoutDesc->setWordWrap(true);
+    logoutDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px; margin-bottom: 5px;"));
+    teamsLayout->addWidget(logoutDesc);
+
+    auto *logoutBtn = new QPushButton(QStringLiteral("Log Out from Organization"));
+    logoutBtn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    connect(logoutBtn, &QPushButton::clicked, this, [this]() {
+        auto reply = QMessageBox::question(this,
+            QStringLiteral("Log Out from Organization"),
+            QStringLiteral("Are you sure you want to remove this device from your Zero Trust organization?\n\nThe app will switch to WARP mode and you will need to re-enroll to connect again."),
+            QMessageBox::Yes | QMessageBox::No);
+
+        if (reply == QMessageBox::Yes) {
+            // Delete registration - this completely unregisters the device
+            QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("delete")});
+            
+            QMessageBox::information(this, QStringLiteral("Logged Out"), 
+                QStringLiteral("Successfully logged out from Zero Trust organization.\n\nYou can now register as a new device or enroll in a different organization."));
+            
+            refreshSettings();
+            emit settingsChanged();
+        }
+    });
+    teamsLayout->addWidget(logoutBtn);
+
+    layout->addWidget(teamsGroup);
+
+    // Initially hide Teams group (will be shown if enrolled)
+    teamsGroup->setVisible(false);
+    page->setProperty("teamsGroup", QVariant::fromValue(teamsGroup));
 
     layout->addStretch();
 
@@ -1023,6 +1220,10 @@ void PreferencesDialog::updateAccountStatus(const QString &statusText) {
         }
     }
 
+    // Check if this is a Teams/Zero Trust account
+    bool isTeamsAccount = regOutput.contains(QStringLiteral("Account type: Team"), Qt::CaseInsensitive) ||
+                         regOutput.contains(QStringLiteral("Organization:"), Qt::CaseInsensitive);
+
     // Update the Account page label
     if (m_contentStack->count() > 2) {
         auto *accountPage = m_contentStack->widget(2); // Account page is at index 2
@@ -1034,6 +1235,20 @@ void PreferencesDialog::updateAccountStatus(const QString &statusText) {
                 } else {
                     accountLabel->setText(accountStatusText);
                 }
+            }
+
+            // Show/hide Registration group (show when not registered OR registered but not with a team)
+            auto *registrationGroup = accountPage->property("registrationGroup").value<QGroupBox*>();
+            bool isRegistered = !regOutput.contains(QStringLiteral("No registration found"), Qt::CaseInsensitive);
+            if (registrationGroup) {
+                // Show registration options when: not registered OR registered but not in a team
+                registrationGroup->setVisible(!isRegistered || !isTeamsAccount);
+            }
+
+            // Show/hide Teams account management group (only show when registered with Teams)
+            auto *teamsGroup = accountPage->property("teamsGroup").value<QGroupBox*>();
+            if (teamsGroup) {
+                teamsGroup->setVisible(isTeamsAccount && isRegistered);
             }
         }
     }

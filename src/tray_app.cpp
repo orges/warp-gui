@@ -129,7 +129,24 @@ void TrayApp::refreshStatus() {
 }
 
 void TrayApp::refreshSettings() {
+    // Fetch both settings and status to update mode and Zero Trust status
     m_warp.run(QStringLiteral("settings"), QStringList{QStringLiteral("settings")});
+    m_warp.runJson(QStringLiteral("status"), QStringList{QStringLiteral("status")});
+    updateZeroTrustStatus();
+}
+
+void TrayApp::updateZeroTrustStatus() {
+    // Immediately check and update Zero Trust status
+    QProcess regProcess;
+    regProcess.start(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("show")});
+    regProcess.waitForFinished();
+    QString regOutput = QString::fromUtf8(regProcess.readAllStandardOutput());
+
+    m_isZeroTrust = regOutput.contains(QStringLiteral("Account type: Team"), Qt::CaseInsensitive) ||
+                    regOutput.contains(QStringLiteral("Organization:"), Qt::CaseInsensitive);
+    
+    // Immediately update UI
+    applyUiState();
 }
 
 void TrayApp::onTrayActivated(QSystemTrayIcon::ActivationReason reason) {

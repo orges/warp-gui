@@ -25,6 +25,7 @@ public:
 private slots:
     void refreshStatus();
     void refreshSettings();
+    void updateZeroTrustStatus();
     void onTrayActivated(QSystemTrayIcon::ActivationReason reason);
     void showPopup();
     void hidePopup();

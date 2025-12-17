@@ -114,7 +114,8 @@ void WarpPopup::applyStyle() {
         "QPushButton:hover { color: #ffffff; }"
     ));
 
-    m_title->setStyleSheet(QStringLiteral("color: #ff6a00; background: transparent; font-weight: bold;"));
+    // Title color will be set dynamically in updateTitle()
+    updateTitleColor();
 
     // Bottom bar styling
     m_bottomBar->setStyleSheet(QStringLiteral(
@@ -220,6 +221,7 @@ void WarpPopup::updateTitle() {
     // Zero Trust takes priority
     if (m_isZeroTrust) {
         m_title->setText(QStringLiteral("Zero Trust"));
+        updateTitleColor();
         return;
     }
 
@@ -233,5 +235,15 @@ void WarpPopup::updateTitle() {
     } else {
         // WARP modes: Warp, WarpPlusDoh, WarpPlusDot, warp, warp+doh, warp+dot, proxy, tunnel_only
         m_title->setText(QStringLiteral("WARP"));
+    }
+    updateTitleColor();
+}
+
+void WarpPopup::updateTitleColor() {
+    // Zero Trust uses blue, WARP and 1.1.1.1 use orange
+    if (m_isZeroTrust) {
+        m_title->setStyleSheet(QStringLiteral("color: #0A64BC; background: transparent; font-weight: bold;"));
+    } else {
+        m_title->setStyleSheet(QStringLiteral("color: #ff6a00; background: transparent; font-weight: bold;"));
     }
 }
