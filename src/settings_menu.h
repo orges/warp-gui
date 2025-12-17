@@ -3,6 +3,7 @@
 #include <QWidget>
 #include <QVBoxLayout>
 
+class QLabel;
 class QPushButton;
 
 class SettingsMenu : public QWidget {
@@ -12,22 +13,24 @@ public:
     explicit SettingsMenu(QWidget *parent = nullptr);
 
     void setActionsEnabled(bool enabled);
+    void setCurrentMode(const QString &mode);
 
 signals:
-    void registerRequested();
-    void enrollRequested();
-    void licenseRequested();
-    void refreshRequested();
-    void quitRequested();
+    void modeChangeRequested(const QString &targetMode);
+    void preferencesRequested();
+    void aboutRequested();
+    void exitRequested();
 
 protected:
     void focusOutEvent(QFocusEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
 
 private:
-    QPushButton *m_registerBtn;
-    QPushButton *m_enrollBtn;
-    QPushButton *m_licenseBtn;
-    QPushButton *m_refreshBtn;
-    QPushButton *m_quitBtn;
+    QPushButton *m_warpBtn;
+    QPushButton *m_dnsOnlyBtn;
+    QPushButton *m_preferencesBtn;
+    QPushButton *m_aboutBtn;
+    QPushButton *m_exitBtn;
+
+    QString m_currentMode;
 };

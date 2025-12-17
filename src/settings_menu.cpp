@@ -1,16 +1,18 @@
 #include "settings_menu.h"
 
 #include <QKeyEvent>
+#include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
 
 SettingsMenu::SettingsMenu(QWidget *parent)
     : QWidget(parent),
-      m_registerBtn(new QPushButton(QStringLiteral("Register"), this)),
-      m_enrollBtn(new QPushButton(QStringLiteral("Enroll Zero Trust Organization…"), this)),
-      m_licenseBtn(new QPushButton(QStringLiteral("Attach License Key…"), this)),
-      m_refreshBtn(new QPushButton(QStringLiteral("Refresh"), this)),
-      m_quitBtn(new QPushButton(QStringLiteral("Quit"), this)) {
+      m_warpBtn(new QPushButton(QStringLiteral("    1.1.1.1 with WARP"), this)),
+      m_dnsOnlyBtn(new QPushButton(QStringLiteral("    1.1.1.1"), this)),
+      m_preferencesBtn(new QPushButton(QStringLiteral("Preferences"), this)),
+      m_aboutBtn(new QPushButton(QStringLiteral("About Cloudflare WARP"), this)),
+      m_exitBtn(new QPushButton(QStringLiteral("Exit"), this)),
+      m_currentMode(QStringLiteral("warp")) {
 
     setWindowFlags(Qt::Popup | Qt::FramelessWindowHint);
     setAttribute(Qt::WA_DeleteOnClose, false);
@@ -20,11 +22,19 @@ SettingsMenu::SettingsMenu(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
-    layout->addWidget(m_registerBtn);
-    layout->addWidget(m_enrollBtn);
-    layout->addWidget(m_licenseBtn);
-    layout->addWidget(m_refreshBtn);
-    layout->addWidget(m_quitBtn);
+    // Mode options - both visible, one with checkmark
+    layout->addWidget(m_warpBtn);
+    layout->addWidget(m_dnsOnlyBtn);
+
+    // Add separator
+    auto *separator = new QWidget(this);
+    separator->setFixedHeight(1);
+    separator->setStyleSheet(QStringLiteral("background-color: #3a3a3a;"));
+    layout->addWidget(separator);
+
+    layout->addWidget(m_preferencesBtn);
+    layout->addWidget(m_aboutBtn);
+    layout->addWidget(m_exitBtn);
 
     // Style the menu
     setStyleSheet(QStringLiteral(
@@ -32,6 +42,11 @@ SettingsMenu::SettingsMenu(QWidget *parent)
         "  background-color: #2a2a2a;"
         "  border: 1px solid #3a3a3a;"
         "  border-radius: 8px;"
+        "}"
+        "QLabel {"
+        "  background: transparent;"
+        "  color: #ffffff;"
+        "  font-size: 13px;"
         "}"
         "QPushButton {"
         "  background: transparent;"
@@ -47,45 +62,54 @@ SettingsMenu::SettingsMenu(QWidget *parent)
         "QPushButton:disabled {"
         "  color: #666666;"
         "}"
-        "QPushButton:first-child {"
-        "  border-top-left-radius: 8px;"
-        "  border-top-right-radius: 8px;"
-        "}"
         "QPushButton:last-child {"
         "  border-bottom-left-radius: 8px;"
         "  border-bottom-right-radius: 8px;"
         "}"
     ));
 
-    connect(m_registerBtn, &QPushButton::clicked, this, [this]() {
-        emit registerRequested();
+    connect(m_warpBtn, &QPushButton::clicked, this, [this]() {
+        emit modeChangeRequested(QStringLiteral("warp"));
         hide();
     });
-    connect(m_enrollBtn, &QPushButton::clicked, this, [this]() {
-        emit enrollRequested();
+    connect(m_dnsOnlyBtn, &QPushButton::clicked, this, [this]() {
+        emit modeChangeRequested(QStringLiteral("doh"));
         hide();
     });
-    connect(m_licenseBtn, &QPushButton::clicked, this, [this]() {
-        emit licenseRequested();
+    connect(m_preferencesBtn, &QPushButton::clicked, this, [this]() {
+        emit preferencesRequested();
         hide();
     });
-    connect(m_refreshBtn, &QPushButton::clicked, this, [this]() {
-        emit refreshRequested();
+    connect(m_aboutBtn, &QPushButton::clicked, this, [this]() {
+        emit aboutRequested();
         hide();
     });
-    connect(m_quitBtn, &QPushButton::clicked, this, [this]() {
-        emit quitRequested();
+    connect(m_exitBtn, &QPushButton::clicked, this, [this]() {
+        emit exitRequested();
         hide();
     });
 
-    setFixedWidth(220);
+    setFixedWidth(240);
 }
 
 void SettingsMenu::setActionsEnabled(bool enabled) {
-    m_registerBtn->setEnabled(enabled);
-    m_enrollBtn->setEnabled(enabled);
-    m_licenseBtn->setEnabled(enabled);
-    m_refreshBtn->setEnabled(enabled);
+    m_warpBtn->setEnabled(enabled);
+    m_dnsOnlyBtn->setEnabled(enabled);
+    m_preferencesBtn->setEnabled(enabled);
+    m_aboutBtn->setEnabled(enabled);
+}
+
+void SettingsMenu::setCurrentMode(const QString &mode) {
+    m_currentMode = mode.toLower();
+
+    // Update button text with checkmark for active mode
+    if (m_currentMode == QStringLiteral("warp")) {
+        m_warpBtn->setText(QStringLiteral("✓  1.1.1.1 with WARP"));
+        m_dnsOnlyBtn->setText(QStringLiteral("    1.1.1.1"));
+    } else {
+        m_warpBtn->setText(QStringLiteral("    1.1.1.1 with WARP"));
+        m_dnsOnlyBtn->setText(QStringLiteral("✓  1.1.1.1"));
+    }
 }
 
 void SettingsMenu::focusOutEvent(QFocusEvent *event) {

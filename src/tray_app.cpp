@@ -39,6 +39,7 @@ TrayApp::TrayApp(QObject *parent)
       m_popup(new WarpPopup()),
       m_settingsMenu(new SettingsMenu()),
       m_currentStatus(QStringLiteral("…")),
+      m_currentMode(QStringLiteral("warp")),
       m_busy(false) {
     connect(&m_warp, &WarpCli::finished, this, &TrayApp::onWarpFinished);
 
@@ -89,11 +90,19 @@ TrayApp::TrayApp(QObject *parent)
     });
 
     // Connect settings menu signals
-    connect(m_settingsMenu, &SettingsMenu::registerRequested, this, &TrayApp::registerClient);
-    connect(m_settingsMenu, &SettingsMenu::enrollRequested, this, &TrayApp::enrollOrg);
-    connect(m_settingsMenu, &SettingsMenu::licenseRequested, this, &TrayApp::attachLicense);
-    connect(m_settingsMenu, &SettingsMenu::refreshRequested, this, &TrayApp::refreshStatus);
-    connect(m_settingsMenu, &SettingsMenu::quitRequested, qApp, &QApplication::quit);
+    connect(m_settingsMenu, &SettingsMenu::preferencesRequested, this, [this]() {
+        // Show context menu for now (can be implemented as a separate dialog later)
+        m_menu->popup(QCursor::pos());
+    });
+    connect(m_settingsMenu, &SettingsMenu::aboutRequested, this, [this]() {
+        QMessageBox::about(nullptr, QStringLiteral("About Cloudflare WARP"),
+                          QStringLiteral("Cloudflare WARP GUI\nUnofficial Qt-based GUI for warp-cli"));
+    });
+    connect(m_settingsMenu, &SettingsMenu::exitRequested, qApp, &QApplication::quit);
+    connect(m_settingsMenu, &SettingsMenu::modeChangeRequested, this, [this](const QString &targetMode) {
+        m_warp.run(QStringLiteral("set_mode"), QStringList{QStringLiteral("mode"), targetMode});
+        setBusy(true);
+    });
 
     // Setup popup window
     m_popup->setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
@@ -106,11 +115,16 @@ TrayApp::TrayApp(QObject *parent)
 void TrayApp::start() {
     m_tray->show();
     refreshStatus();
+    refreshSettings();
     m_poll->start();
 }
 
 void TrayApp::refreshStatus() {
     m_warp.runJson(QStringLiteral("status"), QStringList{QStringLiteral("status")});
+}
+
+void TrayApp::refreshSettings() {
+    m_warp.run(QStringLiteral("settings"), QStringList{QStringLiteral("settings")});
 }
 
 void TrayApp::onTrayActivated(QSystemTrayIcon::ActivationReason reason) {
@@ -242,8 +256,16 @@ void TrayApp::onWarpFinished(const QString &requestId, const WarpResult &result)
         return;
     }
 
+    if (requestId == QStringLiteral("settings")) {
+        if (result.exitCode == 0) {
+            updateFromSettingsText(result.stdoutText);
+            applyUiState();
+        }
+        return;
+    }
+
     // Only show error dialogs for registration/license commands
-    // Connect/disconnect should be silent and show status in popup
+    // Connect/disconnect/set-mode should be silent and show status in popup
     if (result.exitCode != 0 &&
         (requestId == QStringLiteral("registration_new") ||
          requestId == QStringLiteral("license"))) {
@@ -262,6 +284,11 @@ void TrayApp::onWarpFinished(const QString &requestId, const WarpResult &result)
 
     setBusy(false);
     refreshStatus();
+
+    // Refresh settings after mode change to update the checkmark
+    if (requestId == QStringLiteral("set_mode")) {
+        refreshSettings();
+    }
 }
 
 void TrayApp::updateFromStatusJson(const QByteArray &jsonBytes) {
@@ -288,6 +315,23 @@ void TrayApp::updateFromStatusJson(const QByteArray &jsonBytes) {
         m_currentReason = reasonVal.toString();
     } else {
         m_currentReason.clear();
+    }
+}
+
+void TrayApp::updateFromSettingsText(const QString &settingsText) {
+    // Parse the mode from settings output
+    // Looking for lines like "(default)	Mode: Warp" or "(override)	Mode: Doh"
+    const QStringList lines = settingsText.split(QLatin1Char('\n'));
+    for (const QString &line : lines) {
+        if (line.contains(QStringLiteral("Mode:"), Qt::CaseInsensitive)) {
+            // Extract the mode value after "Mode: "
+            const int modeIndex = line.indexOf(QStringLiteral("Mode:"), 0, Qt::CaseInsensitive);
+            if (modeIndex >= 0) {
+                QString mode = line.mid(modeIndex + 5).trimmed();
+                m_currentMode = mode.toLower();
+                break;
+            }
+        }
     }
 }
 
@@ -335,6 +379,7 @@ void TrayApp::applyUiState() {
 
     if (m_settingsMenu) {
         m_settingsMenu->setActionsEnabled(!m_busy);
+        m_settingsMenu->setCurrentMode(m_currentMode);
     }
 
     if (connected) {

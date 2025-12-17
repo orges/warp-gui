@@ -24,6 +24,7 @@ public:
 
 private slots:
     void refreshStatus();
+    void refreshSettings();
     void onTrayActivated(QSystemTrayIcon::ActivationReason reason);
     void showPopup();
     void hidePopup();
@@ -38,6 +39,7 @@ private:
     void onWarpFinished(const QString &requestId, const WarpResult &result);
 
     void updateFromStatusJson(const QByteArray &jsonBytes);
+    void updateFromSettingsText(const QString &settingsText);
     void setBusy(bool busy);
     void applyUiState();
 
@@ -64,5 +66,6 @@ private:
 
     QString m_currentStatus;
     QString m_currentReason;
+    QString m_currentMode;
     bool m_busy;
 };
