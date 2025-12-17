@@ -68,4 +68,5 @@ private:
     QString m_currentReason;
     QString m_currentMode;
     bool m_busy;
+    bool m_isZeroTrust;
 };

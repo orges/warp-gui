@@ -16,6 +16,7 @@ public:
     void setStatusText(const QString &status, const QString &reason);
     void setBusy(bool busy);
     void setMode(const QString &mode);
+    void setZeroTrust(bool isZeroTrust);
 
 signals:
     void requestConnect();
@@ -32,6 +33,7 @@ private slots:
 
 private:
     void applyStyle();
+    void updateTitle();
 
     QLabel *m_title;
     ToggleSwitch *m_toggle;
@@ -43,4 +45,5 @@ private:
 
     bool m_busy;
     QString m_currentMode;
+    bool m_isZeroTrust;
 };

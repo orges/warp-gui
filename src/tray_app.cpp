@@ -12,6 +12,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QProcess>
 #include <QScreen>
 #include <QSystemTrayIcon>
 #include <QTimer>
@@ -41,7 +42,8 @@ TrayApp::TrayApp(QObject *parent)
       m_settingsMenu(new SettingsMenu()),
       m_currentStatus(QStringLiteral("…")),
       m_currentMode(QStringLiteral("warp")),
-      m_busy(false) {
+      m_busy(false),
+      m_isZeroTrust(false) {
     connect(&m_warp, &WarpCli::finished, this, &TrayApp::onWarpFinished);
 
     m_tray->setIcon(QIcon::fromTheme(QStringLiteral("network-vpn")));
@@ -336,6 +338,15 @@ void TrayApp::updateFromSettingsText(const QString &settingsText) {
             }
         }
     }
+
+    // Check if enrolled in Zero Trust by checking account type
+    QProcess regProcess;
+    regProcess.start(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("show")});
+    regProcess.waitForFinished();
+    QString regOutput = QString::fromUtf8(regProcess.readAllStandardOutput());
+
+    m_isZeroTrust = regOutput.contains(QStringLiteral("Account type: Team"), Qt::CaseInsensitive) ||
+                    regOutput.contains(QStringLiteral("Organization:"), Qt::CaseInsensitive);
 }
 
 void TrayApp::setBusy(bool busy) {
@@ -379,6 +390,7 @@ void TrayApp::applyUiState() {
         m_popup->setBusy(m_busy);
         m_popup->setStatusText(m_currentStatus, m_currentReason);
         m_popup->setMode(m_currentMode);
+        m_popup->setZeroTrust(m_isZeroTrust);
     }
 
     if (m_settingsMenu) {

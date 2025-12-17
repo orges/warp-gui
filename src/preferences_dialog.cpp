@@ -40,6 +40,7 @@ void PreferencesDialog::setupUi() {
     m_sidebar->setFixedWidth(180);
     m_sidebar->addItem(QStringLiteral("General"));
     m_sidebar->addItem(QStringLiteral("Connection"));
+    m_sidebar->addItem(QStringLiteral("Account"));
     m_sidebar->addItem(QStringLiteral("Split Tunneling"));
     m_sidebar->addItem(QStringLiteral("DNS & Families"));
     m_sidebar->addItem(QStringLiteral("Advanced"));
@@ -49,6 +50,7 @@ void PreferencesDialog::setupUi() {
     // Content pages
     createGeneralPage();
     createConnectionPage();
+    createAccountPage();
     createSplitTunnelPage();
     createDnsPage();
     createAdvancedPage();
@@ -118,50 +120,262 @@ void PreferencesDialog::createGeneralPage() {
     });
     layout->addWidget(refreshBtn);
 
-    // Account actions group
-    auto *actionsGroup = new QGroupBox(QStringLiteral("Account Management"));
+    layout->addStretch();
+
+    m_contentStack->addWidget(page);
+}
+
+void PreferencesDialog::createAccountPage() {
+    auto *page = new QWidget();
+    auto *layout = new QVBoxLayout(page);
+    layout->setContentsMargins(30, 30, 30, 30);
+    layout->setSpacing(20);
+
+    // Header
+    auto *header = new QLabel(QStringLiteral("Account"));
+    QFont headerFont = header->font();
+    headerFont.setPointSize(16);
+    headerFont.setBold(true);
+    header->setFont(headerFont);
+    layout->addWidget(header);
+
+    // Account status group
+    auto *statusGroup = new QGroupBox(QStringLiteral("Account Status"));
+    auto *statusLayout = new QVBoxLayout(statusGroup);
+
+    auto *accountStatusLabel = new QLabel(QStringLiteral("Loading account information..."));
+    accountStatusLabel->setWordWrap(true);
+    statusLayout->addWidget(accountStatusLabel);
+
+    layout->addWidget(statusGroup);
+
+    // Registration actions group
+    auto *actionsGroup = new QGroupBox(QStringLiteral("Registration"));
     auto *actionsLayout = new QVBoxLayout(actionsGroup);
 
-    m_registerBtn = new QPushButton(QStringLiteral("Register Device"));
-    m_enrollOrgBtn = new QPushButton(QStringLiteral("Enroll Zero Trust Organization"));
-    m_attachLicenseBtn = new QPushButton(QStringLiteral("Attach WARP+ License"));
+    m_registerBtn = new QPushButton(QStringLiteral("Register New Device"));
+    m_enrollOrgBtn = new QPushButton(QStringLiteral("Enroll in Zero Trust Organization"));
 
-    connect(m_registerBtn, &QPushButton::clicked, this, [this]() {
+    auto *registerDesc = new QLabel(QStringLiteral("Register this device to start using WARP."));
+    registerDesc->setWordWrap(true);
+    registerDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px; margin-bottom: 5px;"));
+
+    auto *enrollDesc = new QLabel(QStringLiteral("Connect to your organization's Zero Trust network."));
+    enrollDesc->setWordWrap(true);
+    enrollDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px; margin-bottom: 5px;"));
+
+    connect(m_registerBtn, &QPushButton::clicked, this, [this, accountStatusLabel]() {
         QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("new")});
-        QMessageBox::information(this, QStringLiteral("Register"), QStringLiteral("Registration command executed. Check warp-cli status."));
+        QMessageBox::information(this, QStringLiteral("Register"), QStringLiteral("Registration command executed. Check status below."));
         refreshSettings();
     });
 
-    connect(m_enrollOrgBtn, &QPushButton::clicked, this, [this]() {
+    connect(m_enrollOrgBtn, &QPushButton::clicked, this, [this, accountStatusLabel]() {
         bool ok;
         QString org = QInputDialog::getText(this, QStringLiteral("Enroll Organization"),
-                                           QStringLiteral("Organization name:"), QLineEdit::Normal,
+                                           QStringLiteral("Enter your organization name:"), QLineEdit::Normal,
                                            QString(), &ok);
         if (ok && !org.isEmpty()) {
-            QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("new"), org});
-            QMessageBox::information(this, QStringLiteral("Enroll"), QStringLiteral("Enrollment command executed."));
-            refreshSettings();
+            // Show ToS dialog BEFORE running the command
+            QMessageBox tosDialog(this);
+            tosDialog.setWindowTitle(QStringLiteral("Terms of Service"));
+            tosDialog.setIcon(QMessageBox::Information);
+            tosDialog.setText(QStringLiteral("Your organization is using Cloudflare for Teams"));
+            tosDialog.setInformativeText(
+                QStringLiteral("The following information may be viewed by administrators:\n\n"
+                              "• The websites you visit\n"
+                              "• The times you visited them\n\n"
+                              "More information:\n"
+                              "https://www.cloudflare.com/application/terms/\n"
+                              "https://www.cloudflare.com/application/privacypolicy/\n\n"
+                              "Do you accept the Terms of Service and Privacy Policy?")
+            );
+
+            QPushButton *acceptBtn = tosDialog.addButton(QStringLiteral("Accept"), QMessageBox::AcceptRole);
+            QPushButton *declineBtn = tosDialog.addButton(QStringLiteral("Decline"), QMessageBox::RejectRole);
+
+            tosDialog.exec();
+
+            if (tosDialog.clickedButton() != acceptBtn) {
+                // User declined
+                return;
+            }
+
+            // User accepted, now run enrollment with script command to provide PTY and auto-answer
+            QProcess *enrollProcess = new QProcess(this);
+            QString *allOutput = new QString();
+            bool *urlOpened = new bool(false);
+
+            // Read output as it comes
+            connect(enrollProcess, &QProcess::readyReadStandardOutput, this, [enrollProcess, allOutput, urlOpened, this]() {
+                *allOutput += QString::fromUtf8(enrollProcess->readAllStandardOutput());
+
+                // Check if URL appeared in the output
+                QRegularExpression urlRegex(QStringLiteral("https://[^\\s]+"));
+                auto urlMatch = urlRegex.match(*allOutput);
+
+                if (urlMatch.hasMatch() && !*urlOpened) {
+                    QString url = urlMatch.captured(0);
+                    *urlOpened = true;
+
+                    // Open browser immediately without showing extra dialog
+                    QProcess::startDetached(QStringLiteral("xdg-open"), {url});
+
+                    // Show non-blocking notification
+                    QMessageBox *msgBox = new QMessageBox(this);
+                    msgBox->setWindowTitle(QStringLiteral("Browser Opened"));
+                    msgBox->setIcon(QMessageBox::Information);
+                    msgBox->setText(QStringLiteral("Complete authentication in browser"));
+                    msgBox->setInformativeText(
+                        QStringLiteral("Browser opened to:\n") + url + QStringLiteral("\n\n"
+                                      "Complete the authentication to finish enrollment.")
+                    );
+                    msgBox->setStandardButtons(QMessageBox::Ok);
+                    msgBox->setAttribute(Qt::WA_DeleteOnClose);
+                    msgBox->setModal(false);
+                    msgBox->show();
+                }
+            });
+
+            connect(enrollProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                    this, [this, enrollProcess, allOutput, urlOpened, org](int exitCode, QProcess::ExitStatus exitStatus) {
+                *allOutput += QString::fromUtf8(enrollProcess->readAllStandardOutput());
+                *allOutput += QString::fromUtf8(enrollProcess->readAllStandardError());
+
+                if (exitCode == 0 && *urlOpened) {
+                    // URL was opened, authentication should be complete
+                    QMessageBox::information(this, QStringLiteral("Enrollment Successful"),
+                                           QStringLiteral("Successfully enrolled in Zero Trust organization."));
+                    refreshSettings();
+                } else if (exitCode == 0 && !*urlOpened) {
+                    // Successful but no URL? Might be already registered
+                    refreshSettings();
+                } else if (allOutput->contains(QStringLiteral("Old registration is still around"), Qt::CaseInsensitive)) {
+                    // Ask if user wants to delete old registration and retry
+                    auto reply = QMessageBox::question(this,
+                        QStringLiteral("Existing Registration"),
+                        QStringLiteral("An existing registration was found. Delete it and enroll in the new organization?"),
+                        QMessageBox::Yes | QMessageBox::No);
+
+                    if (reply == QMessageBox::Yes) {
+                        // Delete old registration and retry
+                        QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("delete")});
+
+                        // Retry enrollment
+                        QProcess *retryProcess = new QProcess(this);
+                        connect(retryProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                                this, [this, retryProcess](int code, QProcess::ExitStatus status) {
+                            QString output = QString::fromUtf8(retryProcess->readAllStandardOutput()) +
+                                           QString::fromUtf8(retryProcess->readAllStandardError());
+
+                            // Check for URL in retry output
+                            QRegularExpression urlRegex(QStringLiteral("https://[^\\s]+"));
+                            auto urlMatch = urlRegex.match(output);
+
+                            if (urlMatch.hasMatch()) {
+                                QString url = urlMatch.captured(0);
+                                QProcess::startDetached(QStringLiteral("xdg-open"), {url});
+
+                                QMessageBox::information(this, QStringLiteral("Complete Enrollment in Browser"),
+                                                       QStringLiteral("Browser opened. Complete authentication and click OK when done."));
+                            } else {
+                                QMessageBox::warning(this, QStringLiteral("Enrollment Failed"),
+                                                   QStringLiteral("Failed to enroll. Please try again or check warp-cli status."));
+                            }
+                            refreshSettings();
+                            retryProcess->deleteLater();
+                        });
+
+                        QString retryCmd = QStringLiteral("echo y | script -qec 'warp-cli registration new %1' /dev/null").arg(org);
+                        retryProcess->start(QStringLiteral("sh"), {QStringLiteral("-c"), retryCmd});
+                    }
+                } else {
+                    // Show only relevant error lines, not the whole ToS text
+                    QStringList lines = allOutput->split(QLatin1Char('\n'));
+                    QString errorMsg;
+                    for (const QString &line : lines) {
+                        QString trimmed = line.trimmed();
+                        if (!trimmed.isEmpty() &&
+                            !trimmed.startsWith(QStringLiteral("*")) &&
+                            !trimmed.contains(QStringLiteral("NOTICE:")) &&
+                            !trimmed.contains(QStringLiteral("Your organization is using")) &&
+                            !trimmed.contains(QStringLiteral("What information")) &&
+                            !trimmed.contains(QStringLiteral("More information")) &&
+                            !trimmed.contains(QStringLiteral("https://")) &&
+                            !trimmed.contains(QStringLiteral("Accept Terms")) &&
+                            trimmed != QStringLiteral("y") &&
+                            trimmed.length() > 5) {
+                            errorMsg += trimmed + QStringLiteral("\n");
+                        }
+                    }
+
+                    if (errorMsg.isEmpty()) {
+                        errorMsg = QStringLiteral("Enrollment failed. Exit code: ") + QString::number(exitCode);
+                    }
+
+                    QMessageBox::warning(this, QStringLiteral("Enrollment Failed"), errorMsg.trimmed());
+                }
+
+                delete allOutput;
+                delete urlOpened;
+                enrollProcess->deleteLater();
+            });
+
+            // Use unbuffer (from expect-lite or expect package) or script to keep process running
+            // This allows the process to stay alive and receive the callback from the browser
+            QString command;
+
+            // Try unbuffer first (cleaner than script)
+            if (QProcess::execute(QStringLiteral("which"), {QStringLiteral("unbuffer")}) == 0) {
+                command = QStringLiteral("(sleep 0.5; echo y) | unbuffer -p warp-cli registration new %1").arg(org);
+            } else {
+                // Fallback: use script with a longer timeout to keep process alive
+                command = QStringLiteral("(sleep 0.5; echo y; sleep 120) | script -qec 'warp-cli registration new %1' /dev/null").arg(org);
+            }
+
+            enrollProcess->start(QStringLiteral("sh"), {QStringLiteral("-c"), command});
         }
     });
 
-    connect(m_attachLicenseBtn, &QPushButton::clicked, this, [this]() {
+    actionsLayout->addWidget(registerDesc);
+    actionsLayout->addWidget(m_registerBtn);
+    actionsLayout->addSpacing(10);
+    actionsLayout->addWidget(enrollDesc);
+    actionsLayout->addWidget(m_enrollOrgBtn);
+
+    layout->addWidget(actionsGroup);
+
+    // License group
+    auto *licenseGroup = new QGroupBox(QStringLiteral("WARP+ License"));
+    auto *licenseLayout = new QVBoxLayout(licenseGroup);
+
+    m_attachLicenseBtn = new QPushButton(QStringLiteral("Attach License Key"));
+
+    auto *licenseDesc = new QLabel(QStringLiteral("Enter your WARP+ license key to unlock premium features."));
+    licenseDesc->setWordWrap(true);
+    licenseDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px; margin-bottom: 5px;"));
+
+    connect(m_attachLicenseBtn, &QPushButton::clicked, this, [this, accountStatusLabel]() {
         bool ok;
         QString key = QInputDialog::getText(this, QStringLiteral("Attach License"),
-                                           QStringLiteral("License key:"), QLineEdit::Password,
+                                           QStringLiteral("Enter your WARP+ license key:"), QLineEdit::Password,
                                            QString(), &ok);
         if (ok && !key.isEmpty()) {
             QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("license"), key});
-            QMessageBox::information(this, QStringLiteral("License"), QStringLiteral("License command executed."));
+            QMessageBox::information(this, QStringLiteral("License"), QStringLiteral("License command executed. Check status below."));
             refreshSettings();
         }
     });
 
-    actionsLayout->addWidget(m_registerBtn);
-    actionsLayout->addWidget(m_enrollOrgBtn);
-    actionsLayout->addWidget(m_attachLicenseBtn);
+    licenseLayout->addWidget(licenseDesc);
+    licenseLayout->addWidget(m_attachLicenseBtn);
 
-    layout->addWidget(actionsGroup);
+    layout->addWidget(licenseGroup);
+
     layout->addStretch();
+
+    // Store the account status label for updates
+    page->setProperty("accountStatusLabel", QVariant::fromValue(accountStatusLabel));
 
     m_contentStack->addWidget(page);
 }
@@ -586,7 +800,7 @@ void PreferencesDialog::applyStyles() {
 
 void PreferencesDialog::onCategoryChanged(int index) {
     m_contentStack->setCurrentIndex(index);
-    if (index == 1) { // Connection page
+    if (index == 0 || index == 1 || index == 2) { // General, Connection, or Account page
         refreshSettings();
     }
 }
@@ -778,4 +992,49 @@ void PreferencesDialog::updateAccountStatus(const QString &statusText) {
     if (m_connectionTypeLabel) m_connectionTypeLabel->setText(connectionType);
     if (m_publicIpLabel) m_publicIpLabel->setText(publicIp);
     if (m_deviceIdLabel) m_deviceIdLabel->setText(deviceId);
+
+    // Update Account page status
+    QString accountStatusText;
+    QRegularExpression accountTypeRegex(QStringLiteral("Account type:\\s*([^\\n]+)"));
+    auto accountTypeMatch = accountTypeRegex.match(regOutput);
+    if (accountTypeMatch.hasMatch()) {
+        QString accountType = accountTypeMatch.captured(1).trimmed();
+        accountStatusText = QStringLiteral("<b>Account Type:</b> ") + accountType + QStringLiteral("<br>");
+    }
+
+    QRegularExpression accountIdRegex(QStringLiteral("Account ID:\\s*([^\\n]+)"));
+    auto accountIdMatch = accountIdRegex.match(regOutput);
+    if (accountIdMatch.hasMatch()) {
+        QString accountId = accountIdMatch.captured(1).trimmed();
+        accountStatusText += QStringLiteral("<b>Account ID:</b> ") + accountId + QStringLiteral("<br>");
+    }
+
+    accountStatusText += QStringLiteral("<b>Device ID:</b> ") + deviceId;
+
+    // Check if device has WARP+ license
+    if (regOutput.contains(QStringLiteral("License:"), Qt::CaseInsensitive)) {
+        QRegularExpression licenseRegex(QStringLiteral("License:\\s*([^\\n]+)"));
+        auto licenseMatch = licenseRegex.match(regOutput);
+        if (licenseMatch.hasMatch()) {
+            QString license = licenseMatch.captured(1).trimmed();
+            if (license != QStringLiteral("None") && !license.isEmpty()) {
+                accountStatusText += QStringLiteral("<br><b>WARP+ License:</b> Active");
+            }
+        }
+    }
+
+    // Update the Account page label
+    if (m_contentStack->count() > 2) {
+        auto *accountPage = m_contentStack->widget(2); // Account page is at index 2
+        if (accountPage) {
+            auto *accountLabel = accountPage->property("accountStatusLabel").value<QLabel*>();
+            if (accountLabel) {
+                if (regOutput.contains(QStringLiteral("No registration found"), Qt::CaseInsensitive)) {
+                    accountLabel->setText(QStringLiteral("<span style='color:#ff6a00'><b>Not Registered</b></span><br>Please register your device to use WARP."));
+                } else {
+                    accountLabel->setText(accountStatusText);
+                }
+            }
+        }
+    }
 }

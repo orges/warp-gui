@@ -31,6 +31,7 @@ private:
     void setupUi();
     void createGeneralPage();
     void createConnectionPage();
+    void createAccountPage();
     void createSplitTunnelPage();
     void createDnsPage();
     void createAdvancedPage();

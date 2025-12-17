@@ -18,7 +18,8 @@ WarpPopup::WarpPopup(QWidget *parent)
       m_brandingLabel(new QLabel(QStringLiteral("WARP\nby Cloudflare"), m_bottomBar)),
       m_settingsBtn(new QPushButton(m_bottomBar)),
       m_busy(false),
-      m_currentMode(QStringLiteral("warp")) {
+      m_currentMode(QStringLiteral("warp")),
+      m_isZeroTrust(false) {
     // Don't use WA_TranslucentBackground - it interferes with the styled background
     // The frameless window with styled background will work fine
 
@@ -143,7 +144,8 @@ void WarpPopup::setStatusText(const QString &status, const QString &reason) {
                          normalizedMode == QStringLiteral("dot");
 
     if (lower == QStringLiteral("connected")) {
-        if (isDnsOnlyMode) {
+        // Zero Trust and WARP modes always say "Internet", DNS-only says "DNS queries"
+        if (isDnsOnlyMode && !m_isZeroTrust) {
             m_subtitle->setText(QStringLiteral("Your DNS queries are <span style='color:#ff6a00;font-weight:600'>private</span>."));
         } else {
             m_subtitle->setText(QStringLiteral("Your Internet is <span style='color:#ff6a00;font-weight:600'>private</span>."));
@@ -157,8 +159,8 @@ void WarpPopup::setStatusText(const QString &status, const QString &reason) {
         m_toggle->setChecked(true);
         m_toggle->blockSignals(false);
     } else {
-        // Always show "not private" message when disconnected, ignore reason
-        if (isDnsOnlyMode) {
+        // Zero Trust and WARP modes always say "Internet", DNS-only says "DNS queries"
+        if (isDnsOnlyMode && !m_isZeroTrust) {
             m_subtitle->setText(QStringLiteral("Your DNS queries are <span style='color:#ff6a00;font-weight:600'>not private</span>."));
         } else {
             m_subtitle->setText(QStringLiteral("Your Internet is <span style='color:#ff6a00;font-weight:600'>not private</span>."));
@@ -206,7 +208,22 @@ void WarpPopup::focusOutEvent(QFocusEvent *event) {
 
 void WarpPopup::setMode(const QString &mode) {
     m_currentMode = mode;
-    QString normalizedMode = mode.toLower();
+    updateTitle();
+}
+
+void WarpPopup::setZeroTrust(bool isZeroTrust) {
+    m_isZeroTrust = isZeroTrust;
+    updateTitle();
+}
+
+void WarpPopup::updateTitle() {
+    // Zero Trust takes priority
+    if (m_isZeroTrust) {
+        m_title->setText(QStringLiteral("Zero Trust"));
+        return;
+    }
+
+    QString normalizedMode = m_currentMode.toLower();
 
     // DNS-only modes: DnsOverHttps, DnsOverTls, doh, dot
     if (normalizedMode.contains(QStringLiteral("dnsover")) ||
