@@ -15,6 +15,7 @@ public:
 
     void setStatusText(const QString &status, const QString &reason);
     void setBusy(bool busy);
+    void setMode(const QString &mode);
 
 signals:
     void requestConnect();
@@ -41,4 +42,5 @@ private:
     QPushButton *m_settingsBtn;
 
     bool m_busy;
+    QString m_currentMode;
 };

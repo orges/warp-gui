@@ -17,7 +17,8 @@ WarpPopup::WarpPopup(QWidget *parent)
       m_bottomBar(new QWidget(this)),
       m_brandingLabel(new QLabel(QStringLiteral("WARP\nby Cloudflare"), m_bottomBar)),
       m_settingsBtn(new QPushButton(m_bottomBar)),
-      m_busy(false) {
+      m_busy(false),
+      m_currentMode(QStringLiteral("warp")) {
     // Don't use WA_TranslucentBackground - it interferes with the styled background
     // The frameless window with styled background will work fine
 
@@ -136,8 +137,17 @@ void WarpPopup::setStatusText(const QString &status, const QString &reason) {
     m_status->setText(s.isEmpty() ? QStringLiteral("Unknown") : s);
 
     const QString lower = s.toLower();
+    QString normalizedMode = m_currentMode.toLower();
+    bool isDnsOnlyMode = normalizedMode.contains(QStringLiteral("dnsover")) ||
+                         normalizedMode == QStringLiteral("doh") ||
+                         normalizedMode == QStringLiteral("dot");
+
     if (lower == QStringLiteral("connected")) {
-        m_subtitle->setText(QStringLiteral("Your Internet is <span style='color:#ff6a00;font-weight:600'>private</span>."));
+        if (isDnsOnlyMode) {
+            m_subtitle->setText(QStringLiteral("Your DNS queries are <span style='color:#ff6a00;font-weight:600'>private</span>."));
+        } else {
+            m_subtitle->setText(QStringLiteral("Your Internet is <span style='color:#ff6a00;font-weight:600'>private</span>."));
+        }
         m_toggle->blockSignals(true);
         m_toggle->setChecked(true);
         m_toggle->blockSignals(false);
@@ -148,7 +158,11 @@ void WarpPopup::setStatusText(const QString &status, const QString &reason) {
         m_toggle->blockSignals(false);
     } else {
         // Always show "not private" message when disconnected, ignore reason
-        m_subtitle->setText(QStringLiteral("Your Internet is <span style='color:#ff6a00;font-weight:600'>not private</span>."));
+        if (isDnsOnlyMode) {
+            m_subtitle->setText(QStringLiteral("Your DNS queries are <span style='color:#ff6a00;font-weight:600'>not private</span>."));
+        } else {
+            m_subtitle->setText(QStringLiteral("Your Internet is <span style='color:#ff6a00;font-weight:600'>not private</span>."));
+        }
         m_toggle->blockSignals(true);
         m_toggle->setChecked(false);
         m_toggle->blockSignals(false);
@@ -188,4 +202,19 @@ void WarpPopup::focusOutEvent(QFocusEvent *event) {
     QWidget::focusOutEvent(event);
     // Close when focus is lost (user clicked outside)
     emit requestClose();
+}
+
+void WarpPopup::setMode(const QString &mode) {
+    m_currentMode = mode;
+    QString normalizedMode = mode.toLower();
+
+    // DNS-only modes: DnsOverHttps, DnsOverTls, doh, dot
+    if (normalizedMode.contains(QStringLiteral("dnsover")) ||
+        normalizedMode == QStringLiteral("doh") ||
+        normalizedMode == QStringLiteral("dot")) {
+        m_title->setText(QStringLiteral("1.1.1.1"));
+    } else {
+        // WARP modes: Warp, WarpPlusDoh, WarpPlusDot, warp, warp+doh, warp+dot, proxy, tunnel_only
+        m_title->setText(QStringLiteral("WARP"));
+    }
 }

@@ -19,6 +19,7 @@
 #include <QWidgetAction>
 
 #include "popup_widget.h"
+#include "preferences_dialog.h"
 #include "settings_menu.h"
 #include "wayland_popup_helper.h"
 
@@ -91,8 +92,10 @@ TrayApp::TrayApp(QObject *parent)
 
     // Connect settings menu signals
     connect(m_settingsMenu, &SettingsMenu::preferencesRequested, this, [this]() {
-        // Show context menu for now (can be implemented as a separate dialog later)
-        m_menu->popup(QCursor::pos());
+        auto *prefs = new PreferencesDialog();
+        connect(prefs, &PreferencesDialog::settingsChanged, this, &TrayApp::refreshSettings);
+        prefs->setAttribute(Qt::WA_DeleteOnClose);
+        prefs->show();
     });
     connect(m_settingsMenu, &SettingsMenu::aboutRequested, this, [this]() {
         QMessageBox::about(nullptr, QStringLiteral("About Cloudflare WARP"),
@@ -375,6 +378,7 @@ void TrayApp::applyUiState() {
     if (m_popup) {
         m_popup->setBusy(m_busy);
         m_popup->setStatusText(m_currentStatus, m_currentReason);
+        m_popup->setMode(m_currentMode);
     }
 
     if (m_settingsMenu) {
