@@ -16,6 +16,7 @@
 #include <QRegularExpression>
 #include <QStackedWidget>
 #include <QTextEdit>
+#include <QThread>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -547,15 +548,29 @@ void PreferencesDialog::createAccountPage() {
     connect(logoutBtn, &QPushButton::clicked, this, [this]() {
         auto reply = QMessageBox::question(this,
             QStringLiteral("Log Out from Organization"),
-            QStringLiteral("Are you sure you want to remove this device from your Zero Trust organization?\n\nThe app will switch to WARP mode and you will need to re-enroll to connect again."),
+            QStringLiteral("Are you sure you want to log out from your Zero Trust organization?\n\nYour device will remain registered with WARP but will no longer be part of the organization."),
             QMessageBox::Yes | QMessageBox::No);
 
         if (reply == QMessageBox::Yes) {
-            // Delete registration - this completely unregisters the device
+            // To log out from Teams while keeping device registered:
+            // 1. Delete current registration (which is enrolled in Teams)
+            // 2. Re-register without organization (regular WARP account)
+            
             QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("delete")});
             
-            QMessageBox::information(this, QStringLiteral("Logged Out"), 
-                QStringLiteral("Successfully logged out from Zero Trust organization.\n\nYou can now register as a new device or enroll in a different organization."));
+            // Wait a moment for deletion to complete
+            QThread::msleep(500);
+            
+            // Re-register as a regular WARP device (no organization)
+            int exitCode = QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("new")});
+            
+            if (exitCode == 0) {
+                QMessageBox::information(this, QStringLiteral("Logged Out"), 
+                    QStringLiteral("Successfully logged out from Zero Trust organization.\n\nYour device is now registered with regular WARP."));
+            } else {
+                QMessageBox::warning(this, QStringLiteral("Registration Error"), 
+                    QStringLiteral("Logged out from organization but failed to re-register.\n\nPlease manually register using 'warp-cli registration new'."));
+            }
             
             refreshSettings();
             emit settingsChanged();
