@@ -45,7 +45,6 @@ void PreferencesDialog::setupUi() {
     m_sidebar->addItem(QStringLiteral("Connection"));
     m_sidebar->addItem(QStringLiteral("Account"));
     m_sidebar->addItem(QStringLiteral("Connectivity"));
-    m_sidebar->addItem(QStringLiteral("Split Tunneling"));
     m_sidebar->addItem(QStringLiteral("Advanced"));
 
     connect(m_sidebar, &QListWidget::currentRowChanged, this, &PreferencesDialog::onCategoryChanged);
@@ -55,7 +54,6 @@ void PreferencesDialog::setupUi() {
     createConnectionPage();
     createAccountPage();
     createConnectivityPage();
-    createSplitTunnelPage();
     createAdvancedPage();
 
     mainLayout->addWidget(m_sidebar);
@@ -780,109 +778,6 @@ void PreferencesDialog::createConnectionPage() {
     m_contentStack->addWidget(page);
 }
 
-void PreferencesDialog::createSplitTunnelPage() {
-    auto *page = new QWidget();
-    auto *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(30, 30, 30, 30);
-    layout->setSpacing(20);
-
-    // Header
-    auto *header = new QLabel(QStringLiteral("Split Tunneling"));
-    QFont headerFont = header->font();
-    headerFont.setPointSize(16);
-    headerFont.setBold(true);
-    header->setFont(headerFont);
-    layout->addWidget(header);
-
-    auto *desc = new QLabel(
-        QStringLiteral("Configure which traffic should bypass the WARP tunnel. "
-                      "By default, local network traffic is excluded."));
-    desc->setWordWrap(true);
-    desc->setStyleSheet(QStringLiteral("color: #999;"));
-    layout->addWidget(desc);
-
-    // View current split tunnel
-    m_viewSplitTunnelBtn = new QPushButton(QStringLiteral("View Live Routing Dump"));
-    connect(m_viewSplitTunnelBtn, &QPushButton::clicked, this, [this]() {
-        QProcess process;
-        process.start(QStringLiteral("warp-cli"), {QStringLiteral("tunnel"), QStringLiteral("dump")});
-        process.waitForFinished();
-        QString output = QString::fromUtf8(process.readAllStandardOutput());
-
-        if (process.exitCode() != 0) {
-            output = QStringLiteral("Error: WARP must be connected to view live routing dump.\n\n") +
-                     QString::fromUtf8(process.readAllStandardError());
-        }
-
-        QMessageBox msgBox(this);
-        msgBox.setWindowTitle(QStringLiteral("Live Routing Dump"));
-        msgBox.setText(output);
-        msgBox.setDetailedText(output);
-        msgBox.exec();
-    });
-    layout->addWidget(m_viewSplitTunnelBtn);
-
-    // Excluded hosts
-    auto *hostsGroup = new QGroupBox(QStringLiteral("Excluded Hosts & Fallback Domains"));
-    auto *hostsLayout = new QVBoxLayout(hostsGroup);
-
-    auto *hostsLabel = new QLabel(QStringLiteral("Domains excluded from WARP tunnel (read-only):"));
-    hostsLayout->addWidget(hostsLabel);
-
-    m_excludedHostsText = new QTextEdit();
-    m_excludedHostsText->setPlaceholderText(QStringLiteral("No host exclusions configured"));
-    m_excludedHostsText->setMaximumHeight(100);
-    m_excludedHostsText->setReadOnly(true);
-    hostsLayout->addWidget(m_excludedHostsText);
-
-    auto *addHostBtn = new QPushButton(QStringLiteral("Add Host to Exclusions"));
-    connect(addHostBtn, &QPushButton::clicked, this, [this]() {
-        bool ok;
-        QString host = QInputDialog::getText(this, QStringLiteral("Add Host"),
-                                            QStringLiteral("Hostname or domain:"), QLineEdit::Normal,
-                                            QString(), &ok);
-        if (ok && !host.isEmpty()) {
-            QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("tunnel"), QStringLiteral("host"), QStringLiteral("add"), host});
-            QMessageBox::information(this, QStringLiteral("Host Added"), QStringLiteral("Host added to split tunnel exclusions."));
-        }
-    });
-    hostsLayout->addWidget(addHostBtn);
-
-    layout->addWidget(hostsGroup);
-
-    // Excluded IPs
-    auto *ipsGroup = new QGroupBox(QStringLiteral("Excluded IP Ranges"));
-    auto *ipsLayout = new QVBoxLayout(ipsGroup);
-
-    auto *ipsLabel = new QLabel(QStringLiteral("IP ranges excluded from tunnel (read-only):"));
-    ipsLayout->addWidget(ipsLabel);
-
-    m_excludedIpsText = new QTextEdit();
-    m_excludedIpsText->setPlaceholderText(QStringLiteral("No IP exclusions configured"));
-    m_excludedIpsText->setMaximumHeight(120);
-    m_excludedIpsText->setReadOnly(true);
-    ipsLayout->addWidget(m_excludedIpsText);
-
-    auto *addIpBtn = new QPushButton(QStringLiteral("Add IP Range to Exclusions"));
-    connect(addIpBtn, &QPushButton::clicked, this, [this]() {
-        bool ok;
-        QString ip = QInputDialog::getText(this, QStringLiteral("Add IP Range"),
-                                          QStringLiteral("IP range (CIDR):"), QLineEdit::Normal,
-                                          QString(), &ok);
-        if (ok && !ip.isEmpty()) {
-            QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("tunnel"), QStringLiteral("ip"), QStringLiteral("add"), ip});
-            QMessageBox::information(this, QStringLiteral("IP Added"), QStringLiteral("IP range added to split tunnel exclusions."));
-        }
-    });
-    ipsLayout->addWidget(addIpBtn);
-
-    layout->addWidget(ipsGroup);
-
-    layout->addStretch();
-
-    m_contentStack->addWidget(page);
-}
-
 void PreferencesDialog::createAdvancedPage() {
     auto *page = new QWidget();
     auto *layout = new QVBoxLayout(page);
@@ -906,6 +801,96 @@ void PreferencesDialog::createAdvancedPage() {
     settingsLayout->addWidget(m_autoConnectCheck);
 
     layout->addWidget(settingsGroup);
+
+    // Split Tunnels section
+    auto *splitTunnelGroup = new QGroupBox(QStringLiteral("Split Tunnels"));
+    auto *splitTunnelLayout = new QVBoxLayout(splitTunnelGroup);
+
+    auto *splitDesc = new QLabel(
+        QStringLiteral("Configure which traffic should bypass the WARP tunnel. "
+                      "By default, local network traffic is excluded."));
+    splitDesc->setWordWrap(true);
+    splitDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px;"));
+    splitTunnelLayout->addWidget(splitDesc);
+
+    // View current split tunnel
+    m_viewSplitTunnelBtn = new QPushButton(QStringLiteral("View Live Routing Dump"));
+    connect(m_viewSplitTunnelBtn, &QPushButton::clicked, this, [this]() {
+        QProcess process;
+        process.start(QStringLiteral("warp-cli"), {QStringLiteral("tunnel"), QStringLiteral("dump")});
+        process.waitForFinished();
+        QString output = QString::fromUtf8(process.readAllStandardOutput());
+
+        if (process.exitCode() != 0) {
+            output = QStringLiteral("Error: WARP must be connected to view live routing dump.\n\n") +
+                     QString::fromUtf8(process.readAllStandardError());
+        }
+
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle(QStringLiteral("Live Routing Dump"));
+        msgBox.setText(output);
+        msgBox.setDetailedText(output);
+        msgBox.exec();
+    });
+    splitTunnelLayout->addWidget(m_viewSplitTunnelBtn);
+
+    // Excluded hosts subsection
+    auto *hostsLabel = new QLabel(QStringLiteral("<b>Excluded Hosts & Fallback Domains</b>"));
+    splitTunnelLayout->addWidget(hostsLabel);
+
+    auto *hostsDescLabel = new QLabel(QStringLiteral("Domains excluded from WARP tunnel (read-only):"));
+    hostsDescLabel->setStyleSheet(QStringLiteral("color: #999; font-size: 11px;"));
+    splitTunnelLayout->addWidget(hostsDescLabel);
+
+    m_excludedHostsText = new QTextEdit();
+    m_excludedHostsText->setPlaceholderText(QStringLiteral("No host exclusions configured"));
+    m_excludedHostsText->setMaximumHeight(100);
+    m_excludedHostsText->setReadOnly(true);
+    splitTunnelLayout->addWidget(m_excludedHostsText);
+
+    auto *addHostBtn = new QPushButton(QStringLiteral("Add Host to Exclusions"));
+    connect(addHostBtn, &QPushButton::clicked, this, [this]() {
+        bool ok;
+        QString host = QInputDialog::getText(this, QStringLiteral("Add Host"),
+                                            QStringLiteral("Hostname or domain:"), QLineEdit::Normal,
+                                            QString(), &ok);
+        if (ok && !host.isEmpty()) {
+            QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("tunnel"), QStringLiteral("host"), QStringLiteral("add"), host});
+            QMessageBox::information(this, QStringLiteral("Host Added"), QStringLiteral("Host added to split tunnel exclusions."));
+        }
+    });
+    splitTunnelLayout->addWidget(addHostBtn);
+
+    splitTunnelLayout->addSpacing(10);
+
+    // Excluded IPs subsection
+    auto *ipsLabel = new QLabel(QStringLiteral("<b>Excluded IP Ranges</b>"));
+    splitTunnelLayout->addWidget(ipsLabel);
+
+    auto *ipsDescLabel = new QLabel(QStringLiteral("IP ranges excluded from tunnel (read-only):"));
+    ipsDescLabel->setStyleSheet(QStringLiteral("color: #999; font-size: 11px;"));
+    splitTunnelLayout->addWidget(ipsDescLabel);
+
+    m_excludedIpsText = new QTextEdit();
+    m_excludedIpsText->setPlaceholderText(QStringLiteral("No IP exclusions configured"));
+    m_excludedIpsText->setMaximumHeight(120);
+    m_excludedIpsText->setReadOnly(true);
+    splitTunnelLayout->addWidget(m_excludedIpsText);
+
+    auto *addIpBtn = new QPushButton(QStringLiteral("Add IP Range to Exclusions"));
+    connect(addIpBtn, &QPushButton::clicked, this, [this]() {
+        bool ok;
+        QString ip = QInputDialog::getText(this, QStringLiteral("Add IP Range"),
+                                          QStringLiteral("IP range (CIDR):"), QLineEdit::Normal,
+                                          QString(), &ok);
+        if (ok && !ip.isEmpty()) {
+            QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("tunnel"), QStringLiteral("ip"), QStringLiteral("add"), ip});
+            QMessageBox::information(this, QStringLiteral("IP Added"), QStringLiteral("IP range added to split tunnel exclusions."));
+        }
+    });
+    splitTunnelLayout->addWidget(addIpBtn);
+
+    layout->addWidget(splitTunnelGroup);
 
     // Diagnostics
     auto *diagGroup = new QGroupBox(QStringLiteral("Diagnostics"));

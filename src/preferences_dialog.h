@@ -39,7 +39,6 @@ private:
     void createConnectivityPage();
     void createConnectionPage();
     void createAccountPage();
-    void createSplitTunnelPage();
     void createAdvancedPage();
     void applyStyles();
     void loadCurrentSettings(const QString &settingsText);
