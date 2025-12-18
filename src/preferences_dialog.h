@@ -25,7 +25,6 @@ signals:
 
 private slots:
     void onCategoryChanged(int index);
-    void onFamiliesModeChanged(int index);
     void onFamiliesModeConnectionChanged(int index);
     void onAddNetwork();
     void onRemoveNetwork();
@@ -40,7 +39,6 @@ private:
     void createConnectionPage();
     void createAccountPage();
     void createSplitTunnelPage();
-    void createDnsPage();
     void createAdvancedPage();
     void applyStyles();
     void loadCurrentSettings(const QString &settingsText);
@@ -80,10 +78,6 @@ private:
     QTextEdit *m_excludedHostsText;
     QTextEdit *m_excludedIpsText;
     QPushButton *m_viewSplitTunnelBtn;
-
-    // DNS page widgets
-    QComboBox *m_familiesModeCombo;
-    QLabel *m_dnsInfoLabel;
 
     // Advanced page widgets
     QCheckBox *m_autoConnectCheck;

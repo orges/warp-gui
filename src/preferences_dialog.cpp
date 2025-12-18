@@ -45,7 +45,6 @@ void PreferencesDialog::setupUi() {
     m_sidebar->addItem(QStringLiteral("Connection"));
     m_sidebar->addItem(QStringLiteral("Account"));
     m_sidebar->addItem(QStringLiteral("Split Tunneling"));
-    m_sidebar->addItem(QStringLiteral("DNS & Families"));
     m_sidebar->addItem(QStringLiteral("Advanced"));
 
     connect(m_sidebar, &QListWidget::currentRowChanged, this, &PreferencesDialog::onCategoryChanged);
@@ -55,7 +54,6 @@ void PreferencesDialog::setupUi() {
     createConnectionPage();
     createAccountPage();
     createSplitTunnelPage();
-    createDnsPage();
     createAdvancedPage();
 
     mainLayout->addWidget(m_sidebar);
@@ -822,67 +820,6 @@ void PreferencesDialog::createSplitTunnelPage() {
     m_contentStack->addWidget(page);
 }
 
-void PreferencesDialog::createDnsPage() {
-    auto *page = new QWidget();
-    auto *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(30, 30, 30, 30);
-    layout->setSpacing(20);
-
-    // Header
-    auto *header = new QLabel(QStringLiteral("DNS & Families"));
-    QFont headerFont = header->font();
-    headerFont.setPointSize(16);
-    headerFont.setBold(true);
-    header->setFont(headerFont);
-    layout->addWidget(header);
-
-    // Families mode
-    auto *familiesGroup = new QGroupBox(QStringLiteral("1.1.1.1 for Families"));
-    auto *familiesLayout = new QFormLayout(familiesGroup);
-
-    auto *familiesDesc = new QLabel(
-        QStringLiteral("Protect your home network from malware and adult content."));
-    familiesDesc->setWordWrap(true);
-    familiesDesc->setStyleSheet(QStringLiteral("color: #999; margin-bottom: 10px;"));
-    familiesLayout->addRow(familiesDesc);
-
-    m_familiesModeCombo = new QComboBox();
-    m_familiesModeCombo->addItem(QStringLiteral("Off"), QStringLiteral("off"));
-    m_familiesModeCombo->addItem(QStringLiteral("Malware Protection"), QStringLiteral("malware"));
-    m_familiesModeCombo->addItem(QStringLiteral("Malware + Adult Content"), QStringLiteral("full"));
-
-    connect(m_familiesModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &PreferencesDialog::onFamiliesModeChanged);
-
-    familiesLayout->addRow(QStringLiteral("Protection level:"), m_familiesModeCombo);
-
-    layout->addWidget(familiesGroup);
-
-    // DNS info
-    auto *dnsGroup = new QGroupBox(QStringLiteral("DNS Settings"));
-    auto *dnsLayout = new QVBoxLayout(dnsGroup);
-
-    m_dnsInfoLabel = new QLabel();
-    m_dnsInfoLabel->setWordWrap(true);
-    dnsLayout->addWidget(m_dnsInfoLabel);
-
-    auto *dnsStatsBtn = new QPushButton(QStringLiteral("View DNS Statistics"));
-    connect(dnsStatsBtn, &QPushButton::clicked, this, []() {
-        QProcess process;
-        process.start(QStringLiteral("warp-cli"), {QStringLiteral("dns"), QStringLiteral("stats")});
-        process.waitForFinished();
-        QString output = QString::fromUtf8(process.readAllStandardOutput());
-        QMessageBox::information(nullptr, QStringLiteral("DNS Stats"), output);
-    });
-    dnsLayout->addWidget(dnsStatsBtn);
-
-    layout->addWidget(dnsGroup);
-
-    layout->addStretch();
-
-    m_contentStack->addWidget(page);
-}
-
 void PreferencesDialog::createAdvancedPage() {
     auto *page = new QWidget();
     auto *layout = new QVBoxLayout(page);
@@ -920,6 +857,16 @@ void PreferencesDialog::createAdvancedPage() {
         QMessageBox::information(nullptr, QStringLiteral("Tunnel Stats"), output);
     });
     diagLayout->addWidget(viewStatsBtn);
+
+    auto *dnsStatsBtn = new QPushButton(QStringLiteral("View DNS Statistics"));
+    connect(dnsStatsBtn, &QPushButton::clicked, this, []() {
+        QProcess process;
+        process.start(QStringLiteral("warp-cli"), {QStringLiteral("dns"), QStringLiteral("stats")});
+        process.waitForFinished();
+        QString output = QString::fromUtf8(process.readAllStandardOutput());
+        QMessageBox::information(nullptr, QStringLiteral("DNS Stats"), output);
+    });
+    diagLayout->addWidget(dnsStatsBtn);
 
     auto *rotateKeysBtn = new QPushButton(QStringLiteral("Rotate Tunnel Keys"));
     connect(rotateKeysBtn, &QPushButton::clicked, this, []() {
@@ -1066,14 +1013,6 @@ void PreferencesDialog::onCategoryChanged(int index) {
     }
 }
 
-void PreferencesDialog::onFamiliesModeChanged(int index) {
-    QString mode = m_familiesModeCombo->itemData(index).toString();
-    QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("dns"), QStringLiteral("families"), mode});
-    QMessageBox::information(this, QStringLiteral("Families Mode Changed"),
-        QStringLiteral("DNS filtering has been updated."));
-    emit settingsChanged();
-}
-
 void PreferencesDialog::onFamiliesModeConnectionChanged(int index) {
     QString mode = m_familiesModeComboConnection->itemData(index).toString();
     QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("dns"), QStringLiteral("families"), mode});
@@ -1205,10 +1144,6 @@ void PreferencesDialog::loadCurrentSettings(const QString &settingsText) {
     }
 
     // Update info labels
-    m_dnsInfoLabel->setText(QStringLiteral("DNS resolver: ") +
-        (settingsText.contains(QStringLiteral("cloudflare-dns.com")) ?
-         QStringLiteral("Cloudflare (1.1.1.1)") : QStringLiteral("Default")));
-
     m_advancedInfoLabel->setText(QStringLiteral("Current configuration loaded from warp-cli settings"));
 }
 
