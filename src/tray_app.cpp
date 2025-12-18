@@ -8,10 +8,8 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QIcon>
-#include <QInputDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
 #include <QProcess>
@@ -36,10 +34,7 @@ TrayApp::TrayApp(QObject *parent)
       m_statusAction(new QAction(QStringLiteral("Status: …"), m_menu)),
       m_connectAction(new QAction(QStringLiteral("Connect"), m_menu)),
       m_disconnectAction(new QAction(QStringLiteral("Disconnect"), m_menu)),
-      m_registerAction(new QAction(QStringLiteral("Register"), m_menu)),
-      m_enrollAction(new QAction(QStringLiteral("Enroll Zero Trust Organization…"), m_menu)),
-      m_licenseAction(new QAction(QStringLiteral("Attach License Key…"), m_menu)),
-      m_refreshAction(new QAction(QStringLiteral("Refresh"), m_menu)),
+      m_preferencesAction(new QAction(QStringLiteral("Preferences…"), m_menu)),
       m_quitAction(new QAction(QStringLiteral("Quit"), m_menu)),
       m_poll(new QTimer(this)),
       m_popup(new WarpPopup()),
@@ -67,11 +62,7 @@ TrayApp::TrayApp(QObject *parent)
     m_menu->addAction(m_connectAction);
     m_menu->addAction(m_disconnectAction);
     m_menu->addSeparator();
-    m_menu->addAction(m_registerAction);
-    m_menu->addAction(m_enrollAction);
-    m_menu->addAction(m_licenseAction);
-    m_menu->addSeparator();
-    m_menu->addAction(m_refreshAction);
+    m_menu->addAction(m_preferencesAction);
     m_menu->addSeparator();
     m_menu->addAction(m_quitAction);
 
@@ -79,10 +70,12 @@ TrayApp::TrayApp(QObject *parent)
 
     connect(m_connectAction, &QAction::triggered, this, &TrayApp::connectWarp);
     connect(m_disconnectAction, &QAction::triggered, this, &TrayApp::disconnectWarp);
-    connect(m_registerAction, &QAction::triggered, this, &TrayApp::registerClient);
-    connect(m_enrollAction, &QAction::triggered, this, &TrayApp::enrollOrg);
-    connect(m_licenseAction, &QAction::triggered, this, &TrayApp::attachLicense);
-    connect(m_refreshAction, &QAction::triggered, this, &TrayApp::refreshStatus);
+    connect(m_preferencesAction, &QAction::triggered, this, [this]() {
+        auto *prefs = new PreferencesDialog();
+        connect(prefs, &PreferencesDialog::settingsChanged, this, &TrayApp::refreshSettings);
+        prefs->setAttribute(Qt::WA_DeleteOnClose);
+        prefs->show();
+    });
     connect(m_quitAction, &QAction::triggered, qApp, &QApplication::quit);
 
     m_poll->setInterval(5000);
@@ -351,46 +344,6 @@ void TrayApp::disconnectWarp() {
     setBusy(true);
 }
 
-void TrayApp::registerClient() {
-    m_warp.run(QStringLiteral("registration_new"), QStringList{QStringLiteral("registration"), QStringLiteral("new")});
-    setBusy(true);
-}
-
-void TrayApp::enrollOrg() {
-    bool ok = false;
-    const QString org = QInputDialog::getText(nullptr,
-                                              QStringLiteral("Zero Trust Enrollment"),
-                                              QStringLiteral("Organization:"),
-                                              QLineEdit::Normal,
-                                              QString(),
-                                              &ok)
-                            .trimmed();
-    if (!ok || org.isEmpty()) {
-        return;
-    }
-
-    m_warp.run(QStringLiteral("registration_new"),
-               QStringList{QStringLiteral("registration"), QStringLiteral("new"), org});
-    setBusy(true);
-}
-
-void TrayApp::attachLicense() {
-    bool ok = false;
-    const QString key = QInputDialog::getText(nullptr,
-                                              QStringLiteral("Attach License"),
-                                              QStringLiteral("License key:"),
-                                              QLineEdit::Password,
-                                              QString(),
-                                              &ok)
-                            .trimmed();
-    if (!ok || key.isEmpty()) {
-        return;
-    }
-
-    m_warp.run(QStringLiteral("license"),
-               QStringList{QStringLiteral("registration"), QStringLiteral("license"), key});
-    setBusy(true);
-}
 
 void TrayApp::onWarpFinished(const QString &requestId, const WarpResult &result) {
     if (requestId == QStringLiteral("status")) {
@@ -520,10 +473,6 @@ void TrayApp::applyUiState() {
 
     m_connectAction->setEnabled(!m_busy && canConnect);
     m_disconnectAction->setEnabled(!m_busy && canDisconnect);
-    m_registerAction->setEnabled(!m_busy);
-    m_enrollAction->setEnabled(!m_busy);
-    m_licenseAction->setEnabled(!m_busy);
-    m_refreshAction->setEnabled(!m_busy);
 
     if (m_popup) {
         m_popup->setBusy(m_busy);

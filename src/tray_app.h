@@ -33,9 +33,6 @@ private slots:
 private:
     void connectWarp();
     void disconnectWarp();
-    void registerClient();
-    void enrollOrg();
-    void attachLicense();
 
     void onWarpFinished(const QString &requestId, const WarpResult &result);
 
@@ -54,10 +51,7 @@ private:
     QAction *m_statusAction;
     QAction *m_connectAction;
     QAction *m_disconnectAction;
-    QAction *m_registerAction;
-    QAction *m_enrollAction;
-    QAction *m_licenseAction;
-    QAction *m_refreshAction;
+    QAction *m_preferencesAction;
     QAction *m_quitAction;
 
     QTimer *m_poll;
