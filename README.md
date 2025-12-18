@@ -5,6 +5,30 @@
 
 An unofficial Qt6-based GUI frontend for Cloudflare's WARP CLI on Linux with Wayland support. Designed for KDE Plasma and other Wayland compositors.
 
+## Screenshots
+
+### Main Popup Interface
+![Main Popup](screenshots/popup.png)
+*Quick connect/disconnect with status display*
+
+### Preferences - General Tab
+![General Tab](screenshots/preferences-general.png)
+*Connection information and device details*
+
+### Preferences - Connection Tab
+![Connection Tab](screenshots/preferences-connection.png)
+*Network exclusions and DNS settings (shown: consumer mode)*
+
+### Preferences - Account Tab
+![Account Tab](screenshots/preferences-account.png)
+*Registration, Zero Trust enrollment, and license management*
+
+### Preferences - Connectivity Tab
+![Connectivity Tab](screenshots/preferences-connectivity.png)
+*API, DNS, and WARP status checks*
+
+> **Note:** You'll need to create a `screenshots/` directory and add actual screenshots of your running application.
+
 ## Features
 
 - **System Tray Integration** - Minimize to tray with visual connection status indicators
