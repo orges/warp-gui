@@ -42,6 +42,7 @@ private:
     void applyUiState();
 
     static QString normalizeStatus(const QString &status);
+    static QIcon createTrayIcon(const QString &state);
 
     WarpCli m_warp;
 

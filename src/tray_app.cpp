@@ -12,6 +12,9 @@
 #include <QJsonObject>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPixmap>
 #include <QProcess>
 #include <QScreen>
 #include <QSettings>
@@ -488,14 +491,75 @@ void TrayApp::applyUiState() {
     }
 
     if (connected) {
-        m_tray->setIcon(QIcon::fromTheme(QStringLiteral("network-vpn")));
+        m_tray->setIcon(createTrayIcon(QStringLiteral("connected")));
     } else if (connecting) {
-        m_tray->setIcon(QIcon::fromTheme(QStringLiteral("network-idle")));
+        m_tray->setIcon(createTrayIcon(QStringLiteral("connecting")));
     } else {
-        QIcon icon = QIcon::fromTheme(QStringLiteral("network-vpn-disconnected"));
-        if (icon.isNull()) {
-            icon = QIcon::fromTheme(QStringLiteral("network-offline"));
-        }
-        m_tray->setIcon(icon);
+        m_tray->setIcon(createTrayIcon(QStringLiteral("disconnected")));
     }
+}
+
+QIcon TrayApp::createTrayIcon(const QString &state) {
+    // Load the base icon from theme
+    QIcon baseIcon;
+    if (state == QStringLiteral("disconnected")) {
+        baseIcon = QIcon::fromTheme(QStringLiteral("network-vpn-disconnected"));
+        if (baseIcon.isNull()) {
+            baseIcon = QIcon::fromTheme(QStringLiteral("network-offline"));
+        }
+        if (baseIcon.isNull()) {
+            baseIcon = QIcon::fromTheme(QStringLiteral("network-vpn"));
+        }
+    } else {
+        // Use network-vpn for both connected and connecting
+        baseIcon = QIcon::fromTheme(QStringLiteral("network-vpn"));
+    }
+
+    if (baseIcon.isNull()) {
+        return baseIcon;
+    }
+
+    QPixmap pixmap = baseIcon.pixmap(64, 64);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    if (state == QStringLiteral("connected")) {
+        // Draw a small lock in the bottom-right corner
+        QColor orange(0xff, 0x6a, 0x00);
+
+        // Lock background circle
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(orange);
+        painter.drawEllipse(QPointF(50, 50), 10, 10);
+
+        // Lock symbol
+        painter.setPen(QPen(Qt::white, 1.5));
+        painter.setBrush(Qt::white);
+
+        // Lock body
+        QRectF lockBody(47, 51, 6, 6);
+        painter.drawRoundedRect(lockBody, 0.5, 0.5);
+
+        // Lock shackle
+        painter.setBrush(Qt::NoBrush);
+        painter.drawArc(48, 47, 4, 4, 0, 180 * 16);
+
+    } else if (state == QStringLiteral("connecting")) {
+        // Draw animated dots in bottom-right corner
+        QColor orange(0xff, 0x6a, 0x00);
+
+        // Orange circle background
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(orange);
+        painter.drawEllipse(QPointF(50, 50), 10, 10);
+
+        // Three white dots
+        painter.setBrush(Qt::white);
+        painter.drawEllipse(QPointF(44, 50), 2, 2);
+        painter.drawEllipse(QPointF(50, 50), 2, 2);
+        painter.drawEllipse(QPointF(56, 50), 2, 2);
+    }
+
+    painter.end();
+    return QIcon(pixmap);
 }
