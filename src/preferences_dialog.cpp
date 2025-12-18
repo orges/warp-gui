@@ -23,7 +23,8 @@
 PreferencesDialog::PreferencesDialog(QWidget *parent)
     : QDialog(parent),
       m_sidebar(new QListWidget(this)),
-      m_contentStack(new QStackedWidget(this)) {
+      m_contentStack(new QStackedWidget(this)),
+      m_isZeroTrust(false) {
 
     setWindowTitle(QStringLiteral("WARP Preferences"));
     setMinimumSize(850, 750);
@@ -606,64 +607,112 @@ void PreferencesDialog::createConnectionPage() {
     header->setFont(headerFont);
     layout->addWidget(header);
 
-    // Mode settings
-    auto *modeGroup = new QGroupBox(QStringLiteral("Connection Mode"));
-    auto *modeLayout = new QFormLayout(modeGroup);
+    // Network Exclusion (Consumer only)
+    m_networkExclusionWidget = new QWidget();
+    auto *networkExclusionLayout = new QVBoxLayout(m_networkExclusionWidget);
+    networkExclusionLayout->setContentsMargins(0, 0, 0, 0);
+    networkExclusionLayout->setSpacing(15);
 
-    m_modeCombo = new QComboBox();
-    m_modeCombo->addItem(QStringLiteral("WARP"), QStringLiteral("warp"));
-    m_modeCombo->addItem(QStringLiteral("WARP with DoH"), QStringLiteral("warp+doh"));
-    m_modeCombo->addItem(QStringLiteral("DNS Only (DoH)"), QStringLiteral("doh"));
-    m_modeCombo->addItem(QStringLiteral("DNS Only (DoT)"), QStringLiteral("dot"));
-    m_modeCombo->addItem(QStringLiteral("WARP with DoT"), QStringLiteral("warp+dot"));
-    m_modeCombo->addItem(QStringLiteral("Proxy Mode"), QStringLiteral("proxy"));
+    auto *excludeGroup = new QGroupBox(QStringLiteral("Excluded Networks"));
+    auto *excludeLayout = new QVBoxLayout(excludeGroup);
 
-    connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int) {
-        QString mode = m_modeCombo->currentData().toString();
-        QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("mode"), mode});
-        emit settingsChanged();
+    auto *excludeDesc = new QLabel(QStringLiteral("WARP will pause when connected to these WiFi networks:"));
+    excludeDesc->setWordWrap(true);
+    excludeDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px;"));
+    excludeLayout->addWidget(excludeDesc);
+
+    m_excludedNetworksList = new QListWidget();
+    m_excludedNetworksList->setMaximumHeight(150);
+    excludeLayout->addWidget(m_excludedNetworksList);
+
+    auto *networkBtnLayout = new QHBoxLayout();
+    m_addNetworkBtn = new QPushButton(QStringLiteral("Add Network…"));
+    m_removeNetworkBtn = new QPushButton(QStringLiteral("Remove"));
+    m_removeNetworkBtn->setEnabled(false);
+    networkBtnLayout->addWidget(m_addNetworkBtn);
+    networkBtnLayout->addWidget(m_removeNetworkBtn);
+    networkBtnLayout->addStretch();
+    excludeLayout->addLayout(networkBtnLayout);
+
+    connect(m_addNetworkBtn, &QPushButton::clicked, this, &PreferencesDialog::onAddNetwork);
+    connect(m_removeNetworkBtn, &QPushButton::clicked, this, &PreferencesDialog::onRemoveNetwork);
+    connect(m_excludedNetworksList, &QListWidget::itemSelectionChanged, this, [this]() {
+        m_removeNetworkBtn->setEnabled(m_excludedNetworksList->currentRow() >= 0);
     });
 
-    modeLayout->addRow(QStringLiteral("Mode:"), m_modeCombo);
+    networkExclusionLayout->addWidget(excludeGroup);
 
-    auto *modeDesc = new QLabel(
-        QStringLiteral("WARP: Full tunnel with UDP DNS\n"
-                      "WARP+DoH: Full tunnel with DNS over HTTPS\n"
-                      "DNS Only: No tunnel, only DNS protection"));
-    modeDesc->setWordWrap(true);
-    modeDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px;"));
-    modeLayout->addRow(modeDesc);
+    // Disable WiFi/Ethernet checkboxes
+    auto *disableGroup = new QGroupBox(QStringLiteral("Network Type Exclusion"));
+    auto *disableLayout = new QVBoxLayout(disableGroup);
 
-    layout->addWidget(modeGroup);
+    m_disableWifiCheck = new QCheckBox(QStringLiteral("Disable for all WiFi networks"));
+    m_disableEthernetCheck = new QCheckBox(QStringLiteral("Disable for all Ethernet connections"));
 
-    // Protocol settings
-    auto *protocolGroup = new QGroupBox(QStringLiteral("Tunnel Protocol"));
-    auto *protocolLayout = new QFormLayout(protocolGroup);
+    connect(m_disableWifiCheck, &QCheckBox::toggled, this, &PreferencesDialog::onDisableWifiChanged);
+    connect(m_disableEthernetCheck, &QCheckBox::toggled, this, &PreferencesDialog::onDisableEthernetChanged);
 
-    m_protocolCombo = new QComboBox();
-    m_protocolCombo->addItem(QStringLiteral("MASQUE (HTTP/3)"), QStringLiteral("masque"));
-    m_protocolCombo->addItem(QStringLiteral("WireGuard"), QStringLiteral("wireguard"));
+    disableLayout->addWidget(m_disableWifiCheck);
+    disableLayout->addWidget(m_disableEthernetCheck);
 
-    connect(m_protocolCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &PreferencesDialog::onProtocolChanged);
+    networkExclusionLayout->addWidget(disableGroup);
 
-    protocolLayout->addRow(QStringLiteral("Protocol:"), m_protocolCombo);
+    layout->addWidget(m_networkExclusionWidget);
 
-    auto *protocolDesc = new QLabel(
-        QStringLiteral("MASQUE: Modern HTTP/3-based protocol (default)\n"
-                      "WireGuard: Traditional VPN protocol"));
-    protocolDesc->setWordWrap(true);
-    protocolDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px;"));
-    protocolLayout->addRow(protocolDesc);
+    // Consumer DNS settings (1.1.1.1 for Families)
+    m_consumerDnsWidget = new QWidget();
+    auto *consumerDnsLayout = new QVBoxLayout(m_consumerDnsWidget);
+    consumerDnsLayout->setContentsMargins(0, 0, 0, 0);
 
-    layout->addWidget(protocolGroup);
+    auto *familiesGroup = new QGroupBox(QStringLiteral("1.1.1.1 for Families"));
+    auto *familiesLayout = new QFormLayout(familiesGroup);
 
-    // Connection info
-    m_connectionInfoLabel = new QLabel();
-    m_connectionInfoLabel->setWordWrap(true);
-    m_connectionInfoLabel->setStyleSheet(QStringLiteral("background: #2a2a2a; padding: 10px; border-radius: 5px; border: 1px solid #3a3a3a;"));
-    layout->addWidget(m_connectionInfoLabel);
+    m_familiesModeComboConnection = new QComboBox();
+    m_familiesModeComboConnection->addItem(QStringLiteral("Off"), QStringLiteral("off"));
+    m_familiesModeComboConnection->addItem(QStringLiteral("Malware Blocking"), QStringLiteral("malware"));
+    m_familiesModeComboConnection->addItem(QStringLiteral("Malware and Adult Content"), QStringLiteral("full"));
+
+    connect(m_familiesModeComboConnection, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &PreferencesDialog::onFamiliesModeConnectionChanged);
+
+    familiesLayout->addRow(QStringLiteral("Mode:"), m_familiesModeComboConnection);
+
+    auto *familiesDesc = new QLabel(QStringLiteral("Filter malware and adult content"));
+    familiesDesc->setWordWrap(true);
+    familiesDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px;"));
+    familiesLayout->addRow(familiesDesc);
+
+    consumerDnsLayout->addWidget(familiesGroup);
+
+    layout->addWidget(m_consumerDnsWidget);
+
+    // Zero Trust DNS settings (Gateway DoH)
+    m_zeroTrustDnsWidget = new QWidget();
+    auto *zeroTrustDnsLayout = new QVBoxLayout(m_zeroTrustDnsWidget);
+    zeroTrustDnsLayout->setContentsMargins(0, 0, 0, 0);
+
+    auto *gatewayGroup = new QGroupBox(QStringLiteral("Gateway DNS over HTTPS"));
+    auto *gatewayLayout = new QFormLayout(gatewayGroup);
+
+    m_gatewayDohInput = new QLineEdit();
+    m_gatewayDohInput->setPlaceholderText(QStringLiteral("Enter subdomain (e.g., abc123def)"));
+    m_gatewayDohInput->setMaxLength(32);
+
+    connect(m_gatewayDohInput, &QLineEdit::editingFinished, this, &PreferencesDialog::onGatewayDohChanged);
+
+    gatewayLayout->addRow(QStringLiteral("DoH Subdomain:"), m_gatewayDohInput);
+
+    auto *gatewayDesc = new QLabel(
+        QStringLiteral("Enter only the subdomain from your Cloudflare Gateway location.\n"
+                      "Example: if your endpoint is https://abc123def.cloudflare-gateway.com/dns-query\n"
+                      "enter only: abc123def"));
+    gatewayDesc->setWordWrap(true);
+    gatewayDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px;"));
+    gatewayLayout->addRow(gatewayDesc);
+
+    zeroTrustDnsLayout->addWidget(gatewayGroup);
+
+    layout->addWidget(m_zeroTrustDnsWidget);
 
     layout->addStretch();
 
@@ -1017,20 +1066,77 @@ void PreferencesDialog::onCategoryChanged(int index) {
     }
 }
 
-void PreferencesDialog::onProtocolChanged(int index) {
-    QString protocol = m_protocolCombo->itemData(index).toString();
-    QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("tunnel"), QStringLiteral("protocol"), protocol});
-    QMessageBox::information(this, QStringLiteral("Protocol Changed"),
-        QStringLiteral("Tunnel protocol changed. You may need to reconnect for changes to take effect."));
-    emit settingsChanged();
-}
-
 void PreferencesDialog::onFamiliesModeChanged(int index) {
     QString mode = m_familiesModeCombo->itemData(index).toString();
     QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("dns"), QStringLiteral("families"), mode});
     QMessageBox::information(this, QStringLiteral("Families Mode Changed"),
         QStringLiteral("DNS filtering has been updated."));
     emit settingsChanged();
+}
+
+void PreferencesDialog::onFamiliesModeConnectionChanged(int index) {
+    QString mode = m_familiesModeComboConnection->itemData(index).toString();
+    QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("dns"), QStringLiteral("families"), mode});
+    emit settingsChanged();
+}
+
+void PreferencesDialog::onAddNetwork() {
+    bool ok = false;
+    QString networkName = QInputDialog::getText(this,
+                                                QStringLiteral("Add Network"),
+                                                QStringLiteral("WiFi Network Name (SSID):"),
+                                                QLineEdit::Normal,
+                                                QString(),
+                                                &ok).trimmed();
+    if (ok && !networkName.isEmpty()) {
+        QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("trusted"), QStringLiteral("ssid"), QStringLiteral("add"), networkName});
+        m_excludedNetworksList->addItem(networkName);
+        emit settingsChanged();
+    }
+}
+
+void PreferencesDialog::onRemoveNetwork() {
+    QListWidgetItem *item = m_excludedNetworksList->currentItem();
+    if (item) {
+        QString networkName = item->text();
+        QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("trusted"), QStringLiteral("ssid"), QStringLiteral("remove"), networkName});
+        delete m_excludedNetworksList->takeItem(m_excludedNetworksList->currentRow());
+        emit settingsChanged();
+    }
+}
+
+void PreferencesDialog::onDisableWifiChanged(bool checked) {
+    if (checked) {
+        // Checkbox checked = user wants to disable WARP on WiFi
+        // So enable the "trusted wifi" feature (auto-disconnect on WiFi)
+        QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("trusted"), QStringLiteral("wifi"), QStringLiteral("enable")});
+    } else {
+        // Checkbox unchecked = user wants WARP to work on WiFi
+        // So disable the "trusted wifi" feature
+        QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("trusted"), QStringLiteral("wifi"), QStringLiteral("disable")});
+    }
+    emit settingsChanged();
+}
+
+void PreferencesDialog::onDisableEthernetChanged(bool checked) {
+    if (checked) {
+        // Checkbox checked = user wants to disable WARP on Ethernet
+        // So enable the "trusted ethernet" feature (auto-disconnect on Ethernet)
+        QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("trusted"), QStringLiteral("ethernet"), QStringLiteral("enable")});
+    } else {
+        // Checkbox unchecked = user wants WARP to work on Ethernet
+        // So disable the "trusted ethernet" feature
+        QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("trusted"), QStringLiteral("ethernet"), QStringLiteral("disable")});
+    }
+    emit settingsChanged();
+}
+
+void PreferencesDialog::onGatewayDohChanged() {
+    QString subdomain = m_gatewayDohInput->text().trimmed();
+    if (!subdomain.isEmpty()) {
+        QProcess::execute(QStringLiteral("warp-cli"), {QStringLiteral("dns"), QStringLiteral("gateway-id"), QStringLiteral("set"), subdomain});
+        emit settingsChanged();
+    }
 }
 
 void PreferencesDialog::refreshSettings() {
@@ -1051,26 +1157,6 @@ void PreferencesDialog::refreshSettings() {
 }
 
 void PreferencesDialog::loadCurrentSettings(const QString &settingsText) {
-    // Parse current mode
-    QRegularExpression modeRegex(QStringLiteral("Mode:\\s*([\\w+]+)"));
-    auto modeMatch = modeRegex.match(settingsText);
-    if (modeMatch.hasMatch()) {
-        QString mode = modeMatch.captured(1).toLower();
-        int idx = m_modeCombo->findData(mode);
-        if (idx >= 0) {
-            m_modeCombo->setCurrentIndex(idx);
-        }
-    }
-
-    // Parse protocol
-    if (settingsText.contains(QStringLiteral("MASQUE"), Qt::CaseInsensitive)) {
-        m_protocolCombo->setCurrentIndex(0);
-        m_connectionInfoLabel->setText(QStringLiteral("Currently using MASQUE (HTTP/3) protocol"));
-    } else if (settingsText.contains(QStringLiteral("WireGuard"), Qt::CaseInsensitive)) {
-        m_protocolCombo->setCurrentIndex(1);
-        m_connectionInfoLabel->setText(QStringLiteral("Currently using WireGuard protocol"));
-    }
-
     // Parse split tunnel exclusions
     QStringList ipExclusions;
     QStringList hostExclusions;
@@ -1266,5 +1352,33 @@ void PreferencesDialog::updateAccountStatus(const QString &statusText) {
                 teamsGroup->setVisible(isTeamsAccount && isRegistered);
             }
         }
+    }
+
+    // Update Zero Trust enrollment status and Connection page visibility
+    m_isZeroTrust = isZeroTrustEnrolled();
+    updateConnectionPageVisibility();
+}
+
+bool PreferencesDialog::isZeroTrustEnrolled() {
+    QProcess process;
+    process.start(QStringLiteral("warp-cli"), {QStringLiteral("registration"), QStringLiteral("show")});
+    process.waitForFinished();
+    QString output = QString::fromUtf8(process.readAllStandardOutput());
+
+    // Check for Zero Trust indicators
+    return output.contains(QStringLiteral("Account type: Team"), Qt::CaseInsensitive) ||
+           output.contains(QStringLiteral("Organization:"), Qt::CaseInsensitive);
+}
+
+void PreferencesDialog::updateConnectionPageVisibility() {
+    // Show/hide widgets based on Zero Trust enrollment
+    if (m_networkExclusionWidget) {
+        m_networkExclusionWidget->setVisible(!m_isZeroTrust);
+    }
+    if (m_consumerDnsWidget) {
+        m_consumerDnsWidget->setVisible(!m_isZeroTrust);
+    }
+    if (m_zeroTrustDnsWidget) {
+        m_zeroTrustDnsWidget->setVisible(m_isZeroTrust);
     }
 }

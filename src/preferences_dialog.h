@@ -7,10 +7,12 @@
 class QListWidget;
 class QListWidgetItem;
 class QLabel;
+class QLineEdit;
 class QComboBox;
 class QPushButton;
 class QTextEdit;
 class QCheckBox;
+class QWidget;
 
 class PreferencesDialog : public QDialog {
     Q_OBJECT
@@ -23,8 +25,13 @@ signals:
 
 private slots:
     void onCategoryChanged(int index);
-    void onProtocolChanged(int index);
     void onFamiliesModeChanged(int index);
+    void onFamiliesModeConnectionChanged(int index);
+    void onAddNetwork();
+    void onRemoveNetwork();
+    void onDisableWifiChanged(bool checked);
+    void onDisableEthernetChanged(bool checked);
+    void onGatewayDohChanged();
     void refreshSettings();
 
 private:
@@ -38,6 +45,8 @@ private:
     void applyStyles();
     void loadCurrentSettings(const QString &settingsText);
     void updateAccountStatus(const QString &statusText);
+    void updateConnectionPageVisibility();
+    bool isZeroTrustEnrolled();
 
     QListWidget *m_sidebar;
     QStackedWidget *m_contentStack;
@@ -51,10 +60,21 @@ private:
     QLabel *m_deviceIdLabel;
 
 
-    // Connection page widgets
-    QComboBox *m_modeCombo;
-    QComboBox *m_protocolCombo;
-    QLabel *m_connectionInfoLabel;
+    // Connection page - Network exclusion (consumer only)
+    QWidget *m_networkExclusionWidget;
+    QListWidget *m_excludedNetworksList;
+    QPushButton *m_addNetworkBtn;
+    QPushButton *m_removeNetworkBtn;
+    QCheckBox *m_disableWifiCheck;
+    QCheckBox *m_disableEthernetCheck;
+
+    // Connection page - Consumer only
+    QWidget *m_consumerDnsWidget;
+    QComboBox *m_familiesModeComboConnection;
+
+    // Connection page - Zero Trust only
+    QWidget *m_zeroTrustDnsWidget;
+    QLineEdit *m_gatewayDohInput;
 
     // Split Tunnel page widgets
     QTextEdit *m_excludedHostsText;
@@ -70,4 +90,5 @@ private:
     QLabel *m_advancedInfoLabel;
 
     QString m_currentSettings;
+    bool m_isZeroTrust;
 };
