@@ -14,6 +14,7 @@ public:
 
     void setActionsEnabled(bool enabled);
     void setCurrentMode(const QString &mode);
+    void setZeroTrustMode(bool isZeroTrust);
 
 signals:
     void modeChangeRequested(const QString &targetMode);
@@ -31,6 +32,7 @@ private:
     QPushButton *m_preferencesBtn;
     QPushButton *m_aboutBtn;
     QPushButton *m_exitBtn;
+    QWidget *m_separator;
 
     QString m_currentMode;
 };

@@ -27,10 +27,10 @@ SettingsMenu::SettingsMenu(QWidget *parent)
     layout->addWidget(m_dnsOnlyBtn);
 
     // Add separator
-    auto *separator = new QWidget(this);
-    separator->setFixedHeight(1);
-    separator->setStyleSheet(QStringLiteral("background-color: #3a3a3a;"));
-    layout->addWidget(separator);
+    m_separator = new QWidget(this);
+    m_separator->setFixedHeight(1);
+    m_separator->setStyleSheet(QStringLiteral("background-color: #3a3a3a;"));
+    layout->addWidget(m_separator);
 
     layout->addWidget(m_preferencesBtn);
     layout->addWidget(m_aboutBtn);
@@ -110,6 +110,14 @@ void SettingsMenu::setCurrentMode(const QString &mode) {
         m_warpBtn->setText(QStringLiteral("    1.1.1.1 with WARP"));
         m_dnsOnlyBtn->setText(QStringLiteral("✓  1.1.1.1"));
     }
+}
+
+void SettingsMenu::setZeroTrustMode(bool isZeroTrust) {
+    // Hide mode switching options when enrolled in Zero Trust
+    // Organizations control the mode through device profiles, not client UI
+    m_warpBtn->setVisible(!isZeroTrust);
+    m_dnsOnlyBtn->setVisible(!isZeroTrust);
+    m_separator->setVisible(!isZeroTrust);
 }
 
 void SettingsMenu::focusOutEvent(QFocusEvent *event) {

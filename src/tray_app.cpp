@@ -484,6 +484,7 @@ void TrayApp::applyUiState() {
     if (m_settingsMenu) {
         m_settingsMenu->setActionsEnabled(!m_busy);
         m_settingsMenu->setCurrentMode(m_currentMode);
+        m_settingsMenu->setZeroTrustMode(m_isZeroTrust);
     }
 
     if (connected) {
