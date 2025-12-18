@@ -36,6 +36,7 @@ private slots:
 private:
     void setupUi();
     void createGeneralPage();
+    void createConnectivityPage();
     void createConnectionPage();
     void createAccountPage();
     void createSplitTunnelPage();
@@ -44,6 +45,7 @@ private:
     void loadCurrentSettings(const QString &settingsText);
     void updateAccountStatus(const QString &statusText);
     void updateConnectionPageVisibility();
+    void updateConnectivityStatus();
     bool isZeroTrustEnrolled();
 
     QListWidget *m_sidebar;
@@ -56,6 +58,12 @@ private:
     QLabel *m_connectionTypeLabel;
     QLabel *m_publicIpLabel;
     QLabel *m_deviceIdLabel;
+
+    // Connectivity page widgets
+    QLabel *m_apiConnectivityLabel;
+    QLabel *m_dnsConnectivityLabel;
+    QLabel *m_warpConnectivityLabel;
+    QLabel *m_coloConnectivityLabel;
 
 
     // Connection page - Network exclusion (consumer only)

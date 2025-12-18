@@ -44,6 +44,7 @@ void PreferencesDialog::setupUi() {
     m_sidebar->addItem(QStringLiteral("General"));
     m_sidebar->addItem(QStringLiteral("Connection"));
     m_sidebar->addItem(QStringLiteral("Account"));
+    m_sidebar->addItem(QStringLiteral("Connectivity"));
     m_sidebar->addItem(QStringLiteral("Split Tunneling"));
     m_sidebar->addItem(QStringLiteral("Advanced"));
 
@@ -53,6 +54,7 @@ void PreferencesDialog::setupUi() {
     createGeneralPage();
     createConnectionPage();
     createAccountPage();
+    createConnectivityPage();
     createSplitTunnelPage();
     createAdvancedPage();
 
@@ -118,6 +120,67 @@ void PreferencesDialog::createGeneralPage() {
     auto *refreshBtn = new QPushButton(QStringLiteral("Refresh Connection Info"));
     connect(refreshBtn, &QPushButton::clicked, this, [this]() {
         refreshSettings();
+    });
+    layout->addWidget(refreshBtn);
+
+    layout->addStretch();
+
+    m_contentStack->addWidget(page);
+}
+
+void PreferencesDialog::createConnectivityPage() {
+    auto *page = new QWidget();
+    auto *layout = new QVBoxLayout(page);
+    layout->setContentsMargins(30, 30, 30, 30);
+    layout->setSpacing(20);
+
+    // Header
+    auto *header = new QLabel(QStringLiteral("Connectivity"));
+    QFont headerFont = header->font();
+    headerFont.setPointSize(16);
+    headerFont.setBold(true);
+    header->setFont(headerFont);
+    layout->addWidget(header);
+
+    // Connection Status group
+    auto *statusGroup = new QGroupBox(QStringLiteral("Connection Status"));
+    auto *statusLayout = new QFormLayout(statusGroup);
+    statusLayout->setSpacing(12);
+
+    m_apiConnectivityLabel = new QLabel(QStringLiteral("Checking..."));
+    m_dnsConnectivityLabel = new QLabel(QStringLiteral("Checking..."));
+    m_warpConnectivityLabel = new QLabel(QStringLiteral("Checking..."));
+    m_coloConnectivityLabel = new QLabel(QStringLiteral("Checking..."));
+
+    statusLayout->addRow(QStringLiteral("API Connectivity:"), m_apiConnectivityLabel);
+    statusLayout->addRow(QStringLiteral("DNS Connectivity:"), m_dnsConnectivityLabel);
+    statusLayout->addRow(QStringLiteral("WARP Connectivity:"), m_warpConnectivityLabel);
+    statusLayout->addRow(QStringLiteral("Colocation Center:"), m_coloConnectivityLabel);
+
+    layout->addWidget(statusGroup);
+
+    // Service Status section
+    auto *serviceGroup = new QGroupBox(QStringLiteral("Service Status"));
+    auto *serviceLayout = new QVBoxLayout(serviceGroup);
+
+    auto *serviceDesc = new QLabel(QStringLiteral("Check Cloudflare's system status for any ongoing service interruptions or maintenance."));
+    serviceDesc->setWordWrap(true);
+    serviceDesc->setStyleSheet(QStringLiteral("color: #999; font-size: 11px; margin-bottom: 5px;"));
+    serviceLayout->addWidget(serviceDesc);
+
+    auto *checkStatusBtn = new QPushButton(QStringLiteral("Check for Service Interruptions"));
+    checkStatusBtn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    connect(checkStatusBtn, &QPushButton::clicked, this, []() {
+        QProcess::startDetached(QStringLiteral("xdg-open"), {QStringLiteral("https://www.cloudflarestatus.com")});
+    });
+    serviceLayout->addWidget(checkStatusBtn);
+
+    layout->addWidget(serviceGroup);
+
+    // Refresh button
+    auto *refreshBtn = new QPushButton(QStringLiteral("Refresh Connectivity Status"));
+    connect(refreshBtn, &QPushButton::clicked, this, [this]() {
+        updateConnectivityStatus();
     });
     layout->addWidget(refreshBtn);
 
@@ -1010,6 +1073,8 @@ void PreferencesDialog::onCategoryChanged(int index) {
     m_contentStack->setCurrentIndex(index);
     if (index == 0 || index == 1 || index == 2) { // General, Connection, or Account page
         refreshSettings();
+    } else if (index == 3) { // Connectivity page
+        updateConnectivityStatus();
     }
 }
 
@@ -1316,4 +1381,77 @@ void PreferencesDialog::updateConnectionPageVisibility() {
     if (m_zeroTrustDnsWidget) {
         m_zeroTrustDnsWidget->setVisible(m_isZeroTrust);
     }
+}
+
+void PreferencesDialog::updateConnectivityStatus() {
+    // Check API Connectivity (try to reach Cloudflare API endpoints)
+    QProcess apiProcess;
+    apiProcess.start(QStringLiteral("curl"), {
+        QStringLiteral("-s"),
+        QStringLiteral("-m"), QStringLiteral("3"),
+        QStringLiteral("-o"), QStringLiteral("/dev/null"),
+        QStringLiteral("-w"), QStringLiteral("%{http_code}"),
+        QStringLiteral("https://api.cloudflare.com/client/v4/user/tokens/verify")
+    });
+    apiProcess.waitForFinished(5000);
+    QString apiResponse = QString::fromUtf8(apiProcess.readAllStandardOutput()).trimmed();
+
+    if (apiResponse == QStringLiteral("400") || apiResponse == QStringLiteral("403") ||
+        apiResponse == QStringLiteral("401") || apiResponse.startsWith(QStringLiteral("2"))) {
+        // Any HTTP response means we can reach the API
+        m_apiConnectivityLabel->setText(QStringLiteral("<span style='color:#00ff00'>Connected</span>"));
+    } else {
+        m_apiConnectivityLabel->setText(QStringLiteral("<span style='color:#ff0000'>Not Connected</span>"));
+    }
+
+    // Check DNS Connectivity (try to resolve cloudflare.com using 1.1.1.1)
+    QProcess dnsProcess;
+    dnsProcess.start(QStringLiteral("dig"), {
+        QStringLiteral("@1.1.1.1"),
+        QStringLiteral("+short"),
+        QStringLiteral("+time=2"),
+        QStringLiteral("cloudflare.com")
+    });
+    dnsProcess.waitForFinished(5000);
+    QString dnsOutput = QString::fromUtf8(dnsProcess.readAllStandardOutput()).trimmed();
+
+    if (!dnsOutput.isEmpty() && dnsProcess.exitCode() == 0) {
+        m_dnsConnectivityLabel->setText(QStringLiteral("<span style='color:#00ff00'>Connected</span>"));
+    } else {
+        m_dnsConnectivityLabel->setText(QStringLiteral("<span style='color:#ff0000'>Not Connected</span>"));
+    }
+
+    // Check WARP Connectivity (use warp-cli status)
+    QProcess warpProcess;
+    warpProcess.start(QStringLiteral("warp-cli"), {QStringLiteral("status")});
+    warpProcess.waitForFinished(5000);
+    QString warpOutput = QString::fromUtf8(warpProcess.readAllStandardOutput());
+
+    if (warpOutput.contains(QStringLiteral("Status update: Connected"), Qt::CaseInsensitive) ||
+        warpOutput.contains(QStringLiteral("\"status\": \"Connected\""), Qt::CaseInsensitive)) {
+        m_warpConnectivityLabel->setText(QStringLiteral("<span style='color:#00ff00'>Connected</span>"));
+    } else if (warpOutput.contains(QStringLiteral("Connecting"), Qt::CaseInsensitive)) {
+        m_warpConnectivityLabel->setText(QStringLiteral("<span style='color:#ffaa00'>Connecting...</span>"));
+    } else {
+        m_warpConnectivityLabel->setText(QStringLiteral("<span style='color:#888888'>Disconnected</span>"));
+    }
+
+    // Get Colocation Center from Cloudflare trace
+    QProcess traceProcess;
+    traceProcess.start(QStringLiteral("curl"), {
+        QStringLiteral("-s"),
+        QStringLiteral("-m"), QStringLiteral("3"),
+        QStringLiteral("https://www.cloudflare.com/cdn-cgi/trace")
+    });
+    traceProcess.waitForFinished(5000);
+    QString traceOutput = QString::fromUtf8(traceProcess.readAllStandardOutput());
+
+    QString colo = QStringLiteral("Unknown");
+    QRegularExpression coloRegex(QStringLiteral("colo=([^\\n]+)"));
+    auto coloMatch = coloRegex.match(traceOutput);
+    if (coloMatch.hasMatch()) {
+        colo = coloMatch.captured(1).trimmed();
+    }
+
+    m_coloConnectivityLabel->setText(colo);
 }
