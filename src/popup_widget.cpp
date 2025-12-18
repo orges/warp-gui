@@ -1,12 +1,17 @@
 #include "popup_widget.h"
 #include "toggle_switch.h"
+#include "wayland_popup_helper.h"
 
+#include <QApplication>
 #include <QFont>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPushButton>
+#include <QShowEvent>
 #include <QVBoxLayout>
+#include <QtMath>
 
 WarpPopup::WarpPopup(QWidget *parent)
     : QWidget(parent),
@@ -19,30 +24,56 @@ WarpPopup::WarpPopup(QWidget *parent)
       m_settingsBtn(new QPushButton(m_bottomBar)),
       m_busy(false),
       m_currentMode(QStringLiteral("warp")),
-      m_isZeroTrust(false) {
-    // Don't use WA_TranslucentBackground - it interferes with the styled background
-    // The frameless window with styled background will work fine
+      m_isZeroTrust(false),
+      m_anchorBottom(true), // Default to bottom panel
+      m_currentPosition(0, 0),
+      m_dragging(false),
+      m_dragStartPos(0, 0),
+      m_windowStartPos(0, 0) {
+    // Enable transparency for rounded corners
+    setAttribute(Qt::WA_TranslucentBackground);
+    // Use FramelessWindowHint for custom styling, WindowStaysOnTopHint for overlay behavior
+    // Qt::Popup tells Qt this should close when clicking outside
+    setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Popup);
 
     // Make the window close when clicking outside or pressing Escape
     setAttribute(Qt::WA_DeleteOnClose, false);
+
+    // Set focus policy to receive focus events
     setFocusPolicy(Qt::StrongFocus);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
-    // Main content area
+    // Main content area (rounded box)
     auto *contentWidget = new QWidget(this);
+    contentWidget->setObjectName(QStringLiteral("contentWidget"));
     auto *contentLayout = new QVBoxLayout(contentWidget);
     contentLayout->setContentsMargins(18, 18, 18, 18);
     contentLayout->setSpacing(12);
 
-    // Title centered at top
+    // Drag handle indicator (three dots)
+    auto *dragHandle = new QLabel(QStringLiteral("⋮⋮⋮"), this);
+    QFont handleFont = dragHandle->font();
+    handleFont.setPointSize(10);
+    dragHandle->setFont(handleFont);
+    dragHandle->setAlignment(Qt::AlignCenter);
+    dragHandle->setStyleSheet(QStringLiteral("color: #666666; background: transparent;"));
+    dragHandle->setToolTip(QStringLiteral("Drag to reposition popup"));
+    dragHandle->setCursor(Qt::OpenHandCursor);
+    contentLayout->addWidget(dragHandle);
+    
+    contentLayout->addSpacing(-8); // Reduce space after drag handle
+
+    // Title centered at top with drag hint
     QFont titleFont = m_title->font();
     titleFont.setPointSize(28);
     titleFont.setBold(true);
     m_title->setFont(titleFont);
     m_title->setAlignment(Qt::AlignCenter);
+    m_title->setToolTip(QStringLiteral("Click and drag to reposition"));
+    m_title->setCursor(Qt::OpenHandCursor);
     contentLayout->addWidget(m_title);
 
     contentLayout->addSpacing(6);
@@ -93,12 +124,15 @@ WarpPopup::WarpPopup(QWidget *parent)
     connect(m_toggle, &ToggleSwitch::toggled, this, &WarpPopup::onToggleChanged);
     connect(m_settingsBtn, &QPushButton::clicked, this, &WarpPopup::requestSettings);
 
-    setFixedSize(260, 320);
+    setFixedSize(260, 332);
 }
 
 void WarpPopup::applyStyle() {
     setStyleSheet(QStringLiteral(
         "WarpPopup { "
+        "  background-color: transparent; " // Transparent for arrow
+        "}"
+        "#contentWidget { "
         "  background-color: #1e1e1e; "
         "  border: 1px solid #3a3a3a; "
         "  border-radius: 12px; "
@@ -203,8 +237,79 @@ void WarpPopup::keyPressEvent(QKeyEvent *event) {
 
 void WarpPopup::focusOutEvent(QFocusEvent *event) {
     QWidget::focusOutEvent(event);
-    // Close when focus is lost (user clicked outside)
-    emit requestClose();
+
+    if (m_dragging) {
+        return;
+    }
+
+    QWidget *focusWidget = qApp->focusWidget();
+    if (focusWidget) {
+        QWidget *topLevel = focusWidget->window();
+
+        // Don't close if focus is still within the popup itself
+        if (topLevel == this) {
+            return;
+        }
+
+        QString className = topLevel->metaObject()->className();
+
+        // Keep popup open for settings menu and preferences dialog
+        if (className == QStringLiteral("SettingsMenu") ||
+            className == QStringLiteral("PreferencesDialog")) {
+            return;
+        }
+
+        emit requestClose();
+    } else {
+        // Focus went to desktop/other apps
+        emit requestClose();
+    }
+}
+
+void WarpPopup::showEvent(QShowEvent *event) {
+    QWidget::showEvent(event);
+    qApp->installEventFilter(this);
+}
+
+void WarpPopup::hideEvent(QHideEvent *event) {
+    QWidget::hideEvent(event);
+    qApp->removeEventFilter(this);
+}
+
+bool WarpPopup::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() == QEvent::MouseButtonPress) {
+        QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+        QWidget *clickedWidget = qApp->widgetAt(mouseEvent->globalPosition().toPoint());
+
+        // Click inside popup
+        if (clickedWidget && (this->isAncestorOf(clickedWidget) || clickedWidget == this)) {
+            return QWidget::eventFilter(watched, event);
+        }
+
+        // Check if clicked on settings menu or preferences dialog
+        if (clickedWidget) {
+            QWidgetList topLevelWidgets = qApp->topLevelWidgets();
+            for (QWidget *widget : topLevelWidgets) {
+                if (widget == this) {
+                    continue;
+                }
+
+                if (widget->isVisible() && (widget->isAncestorOf(clickedWidget) || widget == clickedWidget)) {
+                    QString className = widget->metaObject()->className();
+                    if (className == QStringLiteral("SettingsMenu") ||
+                        className == QStringLiteral("PreferencesDialog")) {
+                        return QWidget::eventFilter(watched, event);
+                    }
+                }
+            }
+        }
+
+        // Clicked outside - close the popup
+        emit requestClose();
+        return false;
+    }
+
+    return QWidget::eventFilter(watched, event);
 }
 
 void WarpPopup::setMode(const QString &mode) {
@@ -246,4 +351,66 @@ void WarpPopup::updateTitleColor() {
     } else {
         m_title->setStyleSheet(QStringLiteral("color: #ff6a00; background: transparent; font-weight: bold;"));
     }
+}
+
+void WarpPopup::setAnchorBottom(bool anchorBottom) {
+    m_anchorBottom = anchorBottom;
+}
+
+void WarpPopup::setCurrentPosition(const QPoint &pos) {
+    m_currentPosition = pos;
+}
+
+void WarpPopup::mousePressEvent(QMouseEvent *event) {
+    if (event->button() == Qt::LeftButton) {
+        // Check if clicking on title area (top 50px) for dragging
+        if (event->pos().y() < 50) {
+            m_dragging = true;
+            m_dragStartPos = event->globalPosition().toPoint();
+            // Use stored LayerShell position (mapToGlobal returns 0,0 for LayerShell windows)
+            m_windowStartPos = m_currentPosition;
+
+            // Disable LayerShell for smooth dragging on Wayland
+            WaylandPopupHelper::disableLayerShell(this);
+
+            setCursor(Qt::ClosedHandCursor);
+            event->accept();
+            return;
+        }
+    }
+    QWidget::mousePressEvent(event);
+}
+
+void WarpPopup::mouseMoveEvent(QMouseEvent *event) {
+    if (m_dragging) {
+        // Don't update position during drag - LayerShell can't move in real-time
+        // Position will update when drag ends (in mouseReleaseEvent)
+        event->accept();
+        return;
+    }
+    QWidget::mouseMoveEvent(event);
+}
+
+void WarpPopup::mouseReleaseEvent(QMouseEvent *event) {
+    if (event->button() == Qt::LeftButton && m_dragging) {
+        m_dragging = false;
+        setCursor(Qt::ArrowCursor);
+
+        // Calculate the delta from drag
+        QPoint currentGlobalPos = event->globalPosition().toPoint();
+        QPoint dragDelta = currentGlobalPos - m_dragStartPos;
+
+        // Only update position if actually dragged (more than 5 pixels)
+        if (qAbs(dragDelta.x()) > 5 || qAbs(dragDelta.y()) > 5) {
+            QPoint finalPos = m_windowStartPos + dragDelta;
+            WaylandPopupHelper::enableLayerShell(this, finalPos, m_anchorBottom);
+            emit positionChanged(dragDelta);
+        } else {
+            WaylandPopupHelper::enableLayerShell(this, m_windowStartPos, m_anchorBottom);
+        }
+
+        event->accept();
+        return;
+    }
+    QWidget::mouseReleaseEvent(event);
 }

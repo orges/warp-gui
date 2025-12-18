@@ -4,6 +4,8 @@
 #include <QApplication>
 #include <QCursor>
 #include <QDebug>
+#include <QDir>
+#include <QFile>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QInputDialog>
@@ -14,6 +16,8 @@
 #include <QMessageBox>
 #include <QProcess>
 #include <QScreen>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QSystemTrayIcon>
 #include <QTimer>
 #include <QWindow>
@@ -43,8 +47,13 @@ TrayApp::TrayApp(QObject *parent)
       m_currentStatus(QStringLiteral("…")),
       m_currentMode(QStringLiteral("warp")),
       m_busy(false),
-      m_isZeroTrust(false) {
+      m_isZeroTrust(false),
+      m_lastCursorPos(0, 0),
+      m_popupOffset(0, 0) {
     connect(&m_warp, &WarpCli::finished, this, &TrayApp::onWarpFinished);
+    
+    // Load saved popup offset
+    m_popupOffset = loadPopupOffset();
 
     m_tray->setIcon(QIcon::fromTheme(QStringLiteral("network-vpn")));
     m_tray->setToolTip(QStringLiteral("WARP"));
@@ -82,6 +91,7 @@ TrayApp::TrayApp(QObject *parent)
     connect(m_popup, &WarpPopup::requestConnect, this, &TrayApp::connectWarp);
     connect(m_popup, &WarpPopup::requestDisconnect, this, &TrayApp::disconnectWarp);
     connect(m_popup, &WarpPopup::requestClose, this, &TrayApp::hidePopup);
+    connect(m_popup, &WarpPopup::positionChanged, this, &TrayApp::savePopupOffset);
     connect(m_popup, &WarpPopup::requestSettings, this, [this]() {
         // Show custom settings menu
         // Position it below the settings button or at bottom-left of popup
@@ -151,6 +161,9 @@ void TrayApp::updateZeroTrustStatus() {
 
 void TrayApp::onTrayActivated(QSystemTrayIcon::ActivationReason reason) {
     if (reason == QSystemTrayIcon::Trigger) {
+        // Capture cursor position immediately when tray is clicked
+        m_lastCursorPos = QCursor::pos();
+        qDebug() << "Tray clicked, cursor at:" << m_lastCursorPos;
         showPopup();
     }
 }
@@ -178,26 +191,107 @@ void TrayApp::showPopup() {
     QRect screenGeom = screen->geometry();
     QRect availGeom = screen->availableGeometry();
 
+    // Try to get tray icon geometry (works on X11, not on Wayland)
+    QRect trayGeom = m_tray->geometry();
+    
     // On Wayland, panel detection often doesn't work (especially with auto-hide panels)
-    // For now, hardcode to bottom-right which is most common for system tray
-    const bool panelAtBottom = true;
+    // Detect panel position based on available geometry
+    bool panelAtBottom = (availGeom.bottom() < screenGeom.bottom());
+    bool panelAtTop = (availGeom.top() > screenGeom.top());
+    
+    // Default to bottom if detection fails (most common)
+    if (!panelAtBottom && !panelAtTop) {
+        panelAtBottom = true;
+    }
+    
     const int estimatedPanelHeight = 48;
-    const int rightPadding = 16;
-    const int popupSpacing = 8; // Space between panel and popup
+    const int popupSpacing = 4; // Reduced spacing for arrow to be closer to icon
+    
+    // On most systems, tray icons are to the left of the clock
+    // Estimate: clock takes ~60-80px, tray icons are ~30-40px each
+    const int estimatedClockWidth = 70;
+    const int estimatedTrayIconWidth = 32;
+    
+    // Adjust this value to fine-tune position:
+    // - Increase to move popup LEFT (away from clock)
+    // - Decrease to move popup RIGHT (toward clock)
+    // Count how many icons are between your WARP icon and the clock
+    const int iconsFromClock = 2; // Adjust this: 0=next to clock, 1=one icon away, 2=two icons away, etc.
+    
+    // Position popup to align with where tray icons typically are
+    const int rightPadding = estimatedClockWidth + (estimatedTrayIconWidth * iconsFromClock) + (estimatedTrayIconWidth / 2);
 
     QPoint popupPos;
-    if (panelAtBottom) {
-        // Panel at bottom - position popup just above the panel
-        popupPos = QPoint(
-            screenGeom.right() - m_popup->width() - rightPadding,
-            screenGeom.bottom() - m_popup->height() - estimatedPanelHeight - popupSpacing
-        );
+
+    if (trayGeom.isValid() && !trayGeom.isEmpty()) {
+        // We have actual tray geometry (X11)
+        qDebug() << "Tray geometry available:" << trayGeom;
+
+        if (panelAtBottom) {
+            popupPos = QPoint(
+                trayGeom.center().x() - m_popup->width() / 2,
+                trayGeom.top() - m_popup->height() - popupSpacing
+            );
+        } else {
+            popupPos = QPoint(
+                trayGeom.center().x() - m_popup->width() / 2,
+                trayGeom.bottom() + popupSpacing
+            );
+        }
     } else {
-        // Panel at top - position popup just below the panel
-        popupPos = QPoint(
-            screenGeom.right() - m_popup->width() - rightPadding,
-            screenGeom.top() + estimatedPanelHeight + popupSpacing
-        );
+        // Wayland - use stored cursor position from tray click
+        QPoint cursorPos = m_lastCursorPos;
+        if (cursorPos.isNull() || cursorPos == QPoint(0, 0)) {
+            cursorPos = QCursor::pos(); // Fallback to current position
+        }
+        qDebug() << "No tray geometry, using cursor position:" << cursorPos;
+        qDebug() << "Screen geometry:" << screenGeom;
+        
+        // Check if cursor is in a reasonable position (near edges)
+        bool cursorNearBottom = (screenGeom.bottom() - cursorPos.y()) < 100;
+        bool cursorNearTop = (cursorPos.y() - screenGeom.top()) < 100;
+        bool cursorNearRight = (screenGeom.right() - cursorPos.x()) < 300;
+        
+        if ((cursorNearBottom || cursorNearTop) && cursorNearRight) {
+            // Cursor is near panel area - use it to position popup
+            qDebug() << "Using cursor position for popup placement";
+            
+            if (panelAtBottom || cursorNearBottom) {
+                // Panel at bottom - center popup on cursor X position
+                popupPos = QPoint(
+                    cursorPos.x() - m_popup->width() / 2,
+                    screenGeom.bottom() - m_popup->height() - estimatedPanelHeight - popupSpacing
+                );
+            } else {
+                // Panel at top
+                popupPos = QPoint(
+                    cursorPos.x() - m_popup->width() / 2,
+                    screenGeom.top() + estimatedPanelHeight + popupSpacing
+                );
+            }
+        } else {
+            // Cursor not helpful - fall back to estimated position
+            qDebug() << "Cursor not near panel, using estimated position";
+            qDebug() << "Estimated right padding:" << rightPadding;
+            
+            if (panelAtBottom) {
+                popupPos = QPoint(
+                    screenGeom.right() - m_popup->width() - rightPadding,
+                    screenGeom.bottom() - m_popup->height() - estimatedPanelHeight - popupSpacing
+                );
+            } else {
+                popupPos = QPoint(
+                    screenGeom.right() - m_popup->width() - rightPadding,
+                    screenGeom.top() + estimatedPanelHeight + popupSpacing
+                );
+            }
+        }
+    }
+
+    // Apply user's custom offset if they've dragged the popup before
+    if (!m_popupOffset.isNull() && m_popupOffset != QPoint(0, 0)) {
+        qDebug() << "Applying saved popup offset:" << m_popupOffset;
+        popupPos += m_popupOffset;
     }
 
     // Create native window if not already created
@@ -205,12 +299,40 @@ void TrayApp::showPopup() {
         m_popup->winId();
     }
 
+    // Tell popup about panel position and current position (for drag support on Wayland)
+    m_popup->setAnchorBottom(panelAtBottom);
+    m_popup->setCurrentPosition(popupPos);
+
     // Use Wayland helper to set up positioning BEFORE showing
     WaylandPopupHelper::setupPopupWindow(m_popup, popupPos, panelAtBottom);
 
     m_popup->show();
     m_popup->raise();
     m_popup->activateWindow();
+}
+
+void TrayApp::savePopupOffset(const QPoint &offset) {
+    // Add the drag delta to the existing offset (cumulative)
+    m_popupOffset += offset;
+
+    QSettings settings(QStringLiteral("warp-gui"), QStringLiteral("warp-gui"));
+    settings.setValue(QStringLiteral("popup/offsetX"), m_popupOffset.x());
+    settings.setValue(QStringLiteral("popup/offsetY"), m_popupOffset.y());
+
+    qDebug() << "Saved popup offset:" << m_popupOffset << "(delta was:" << offset << ")";
+}
+
+QPoint TrayApp::loadPopupOffset() {
+    QSettings settings(QStringLiteral("warp-gui"), QStringLiteral("warp-gui"));
+    int x = settings.value(QStringLiteral("popup/offsetX"), 0).toInt();
+    int y = settings.value(QStringLiteral("popup/offsetY"), 0).toInt();
+    
+    QPoint offset(x, y);
+    if (offset != QPoint(0, 0)) {
+        qDebug() << "Loaded popup offset:" << offset;
+    }
+    
+    return offset;
 }
 
 void TrayApp::hidePopup() {

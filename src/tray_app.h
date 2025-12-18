@@ -70,4 +70,9 @@ private:
     QString m_currentMode;
     bool m_busy;
     bool m_isZeroTrust;
+    QPoint m_lastCursorPos; // Store cursor position when tray is clicked
+    QPoint m_popupOffset; // User's custom popup position offset
+    
+    void savePopupOffset(const QPoint &offset);
+    QPoint loadPopupOffset();
 };

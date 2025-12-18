@@ -11,5 +11,8 @@ class WaylandPopupHelper : public QObject {
 
 public:
     static void setupPopupWindow(QWidget *widget, const QPoint &position, bool anchorBottom = false);
+    static void updatePopupPosition(QWidget *widget, const QPoint &position, bool anchorBottom = false);
+    static void disableLayerShell(QWidget *widget);
+    static void enableLayerShell(QWidget *widget, const QPoint &position, bool anchorBottom = false);
     static bool isWayland();
 };
